@@ -27,32 +27,31 @@ DEFAULT_KEYPOINT_NAMES = [
     'right_ankle'
 ]
 
-FLIP_CONVERTER = {
-    'nose': 'nose',
-    'neck': 'neck',
-    'left_eye': 'right_eye',
-    'right_eye': 'left_eye',
-    'left_ear': 'right_ear',
-    'right_ear': 'left_ear',
-    'left_shoulder': 'right_shoulder',
-    'right_shoulder': 'left_shoulder',
-    'left_elbow': 'right_elbow',
-    'right_elbow': 'left_elbow',
-    'left_wrist': 'right_wrist',
-    'right_wrist': 'left_wrist',
-    'left_hip': 'right_hip',
-    'right_hip': 'left_hip',
-    'left_knee': 'right_knee',
-    'right_knee': 'left_knee',
-    'left_ankle': 'right_ankle',
-    'right_ankle': 'left_ankle',
-}
 
-# update keypoints
-KEYPOINT_NAMES = ['neck'] + DEFAULT_KEYPOINT_NAMES
-FLIP_INDICES = [KEYPOINT_NAMES.index(FLIP_CONVERTER[k]) for k in KEYPOINT_NAMES]
-# update keypoints
-KEYPOINT_NAMES = ['instance'] + KEYPOINT_NAMES
+# modified
+KEYPOINT_NAMES = [
+	'instance',
+    'nose',
+    'neck',
+    'right_shoulder',
+    'right_elbow',
+    'right_wrist',
+    'left_shoulder',
+    'left_elbow',
+    'left_wrist',
+    'right_hip',
+    'right_knee',
+    'right_ankle',
+    'left_hip',
+    'left_knee',
+    'left_ankle',
+    'right_eye',
+    'left_eye',
+    'right_ear',
+    'left_ear'
+]
+
+
 
 COLOR_MAP = {
     'instance': (225, 225, 225),
@@ -145,7 +144,7 @@ def get_coco_dataset(insize, image_root, annotations,
         if left_v >= 1 and right_v >= 1:
             neck = (left_shoulder + right_shoulder) / 2.
             labeled = 1
-            d = np.vstack([np.array([*neck, labeled]), d])
+            d = np.vstack([np.array([neck, labeled]), d]) # modified
         else:
             labeled = 0
             # insert dummy data correspond to `neck`

@@ -1,0 +1,9 @@
+<launch>
+	<arg name="bag_path" default="/home/squareone/ppn_ws/ppn.bag"/>
+	
+	<node pkg="ppn" name="skeleton_pub.py" type="skeleton_pub.py" output="screen" />
+	<node pkg="ppn" name="skeleton_draw.py" type="skeleton_draw.py" output="screen" /> 
+	<node pkg="rosbag" type="play" name="player" output="log" args=" $(arg bag_path) -r 0.1" />
+	<node name="skeleton_visualization" pkg="rviz" type="rviz" output="log" args="-d $(find launch)/skeleton.rviz" />
+
+</launch>

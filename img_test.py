@@ -46,8 +46,6 @@ def main():
         with chainer.using_config('autotune', True):
             humans = estimate(model,
                               image.transpose(2, 0, 1).astype(np.float32))
-            print(type(humans))
-            print(humans)
         pilImg = Image.fromarray(image)
         pilImg = draw_humans(
             model.keypoint_names,
@@ -57,6 +55,11 @@ def main():
             mask=mask.rotate(degree) if mask else None
         )
         img_with_humans = cv2.cvtColor(np.asarray(pilImg), cv2.COLOR_RGB2BGR)
+        if (len(humans)) > 0:
+            if len(humans[0]) > 8:
+                print(humans)
+                cv2.imwrite('human.jpg', img_with_humans)
+                break
         msg = 'GPU ON' if chainer.backends.cuda.available else 'GPU OFF'
         msg += ' ' + config.get('model_param', 'model_name')
         cv2.putText(img_with_humans, 'FPS: % f' % (1.0 / (time.time() - fps_time)),
