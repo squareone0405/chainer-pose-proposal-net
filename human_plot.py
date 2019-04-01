@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+
 import configparser
 import logging
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ def main():
     else:
         mask = None
 
-    image = cv2.imread('hyc1_l.png')
+    image = cv2.imread('lwb_l.png')
     shape_ori = image.shape
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     image = cv2.resize(image, model.insize)
