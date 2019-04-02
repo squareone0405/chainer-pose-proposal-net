@@ -1,5 +1,5 @@
 Header header
-uint8 human_num
-uint8[] skeleton_num
-uint8[] types
+int8 human_num
+int8[] skeleton_num
+int8[] types
 geometry_msgs/Point[] points

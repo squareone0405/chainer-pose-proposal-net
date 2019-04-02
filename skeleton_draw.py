@@ -39,22 +39,20 @@ def skeleton_callback(skeleton):
                 invisible_marker.header.stamp = rospy.Time.now()
                 invisible_marker.id = skeleton_idx + 1
                 msg.markers[human_idx * 14 + skeleton_idx] = invisible_marker
-            print('////////////////////////')
-            print(int(str(skeleton.skeleton_num[human_idx]).encode('hex'), 16))
-            if int(str(skeleton.skeleton_num[human_idx]).encode('hex'), 16) < 4:
+            print(skeleton.skeleton_num[human_idx])
+            if skeleton.skeleton_num[human_idx] < 4:
                 print('skipppppppppppppppppppp')
                 continue
             index = 0
-            for skeleton_idx in range(ord(skeleton.skeleton_num[human_idx])):
+            for skeleton_idx in range(skeleton.skeleton_num[human_idx]):
                 marker = Marker()
                 marker.header = std_msgs.msg.Header()
                 marker.header.frame_id = 'map'
                 marker.header.stamp = rospy.Time.now()
-                marker.id = ord(skeleton.types[index])
+                marker.id = skeleton.types[index]
                 marker.pose.position.x = skeleton.points[index].x / 100
                 marker.pose.position.y = skeleton.points[index].y / 100
-                marker.pose.position.z = skeleton.points[index].z / 1000
-                # marker.pose.position.z = np.random.normal(loc=0.0, scale=0.1, size=1)[0]
+                marker.pose.position.z = skeleton.points[index].z / 10
                 point_list = np.append(point_list,
                                        [marker.pose.position.x, marker.pose.position.y, marker.pose.position.z], axis=0)
                 '''print("x:" + str(marker.pose.position.x))
@@ -71,9 +69,9 @@ def skeleton_callback(skeleton):
                 marker.scale.y = 0.1
                 marker.scale.z = 0.1
                 marker.color.a = 1.0
-                marker.color.r = COLOR_LIST[ord(skeleton.types[index]) - 1][0] / 255.0
-                marker.color.g = COLOR_LIST[ord(skeleton.types[index]) - 1][1] / 255.0
-                marker.color.b = COLOR_LIST[ord(skeleton.types[index]) - 1][2] / 255.0
+                marker.color.r = COLOR_LIST[skeleton.types[index] - 1][0] / 255.0
+                marker.color.g = COLOR_LIST[skeleton.types[index] - 1][1] / 255.0
+                marker.color.b = COLOR_LIST[skeleton.types[index] - 1][2] / 255.0
                 index = index + 1
                 msg.markers[human_idx * 14 + skeleton_idx] = marker
             point_list = point_list.reshape((-1, 3))
