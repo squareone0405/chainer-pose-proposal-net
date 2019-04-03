@@ -42,7 +42,7 @@ class Capture(threading.Thread):
     def _init_zed(self):
         self.zed = sl.Camera()
         self.init = sl.InitParameters()
-        self.init.camera_resolution = sl.RESOLUTION.RESOLUTION_VGA
+        self.init.camera_resolution = sl.RESOLUTION.RESOLUTION_HD720
         self.init.depth_mode = sl.DEPTH_MODE.DEPTH_MODE_PERFORMANCE
         self.init.coordinate_units = sl.UNIT.UNIT_METER
 

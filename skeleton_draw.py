@@ -50,9 +50,9 @@ def skeleton_callback(skeleton):
                 marker.header.frame_id = 'map'
                 marker.header.stamp = rospy.Time.now()
                 marker.id = skeleton.types[index]
-                marker.pose.position.x = skeleton.points[index].x / 100
-                marker.pose.position.y = skeleton.points[index].y / 100
-                marker.pose.position.z = skeleton.points[index].z / 10
+                marker.pose.position.x = skeleton.points[index].x / 1000
+                marker.pose.position.y = skeleton.points[index].y / 1000
+                marker.pose.position.z = skeleton.points[index].z / 100
                 point_list = np.append(point_list,
                                        [marker.pose.position.x, marker.pose.position.y, marker.pose.position.z], axis=0)
                 '''print("x:" + str(marker.pose.position.x))
