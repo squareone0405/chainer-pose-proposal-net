@@ -3,6 +3,22 @@ import matplotlib.pyplot as plt
 from scipy import signal
 import math
 
+import ctypes
+from ctypes import cdll
+
+lib = cdll.LoadLibrary('./build/ssd.so')
+ssd_cuda = lib.ssd
+
+
+def compute_ssd(window, target, out, window_width, window_height,
+                target_width, target_height, out_width, out_height):
+    ssd_cuda(ctypes.c_void_p(window.ctypes.data),
+             ctypes.c_void_p(target.ctypes.data),
+             ctypes.c_void_p(out.ctypes.data),
+             ctypes.c_int32(window_width), ctypes.c_int32(window_height),
+             ctypes.c_int32(target_width), ctypes.c_int32(target_height),
+             ctypes.c_int32(out_width), ctypes.c_int32(out_height))
+
 import configparser
 import logging
 logger = logging.getLogger(__name__)
@@ -57,7 +73,6 @@ def get_points(human, image_left, image_right, kx, ky):
 
     ssd = np.zeros((len(human) - 1, search_ymax - search_ymin + 1, search_xmax - search_xmin + 1), dtype='int32')
     idx = 0
-    ticx = time.time()
     for key in sorted(human):
         if key != 0:
             ymin_f, xmin_f, ymax_f, xmax_f = human[key] # TODO change the range of head and hip
@@ -73,11 +88,11 @@ def get_points(human, image_left, image_right, kx, ky):
             ymax = min(int(ymax_f * ky), image_left.shape[0])
             xmax = min(int(xmax_f * kx), image_left.shape[1])
 
-            window = image_left[ymin:ymax, xmin:xmax]
-            print(ymin, ymax, xmin, xmax)
+            window = image_left[ymin:ymax, xmin:xmax].astype(np.int32)
+            # print(ymin, ymax, xmin, xmax)
 
             target = np.full((window.shape[0] + search_ymax - search_ymin,
-                              window.shape[1] + search_xmax - search_xmin), 512, dtype='int16')
+                              window.shape[1] + search_xmax - search_xmin), 512, dtype='int32')
             target_ymin = max(ymin + search_ymin, 0)
             target_ymax = min(ymax + search_ymax, image_right.shape[0])
             target_xmin = max(xmin + search_xmin, 0)
@@ -89,13 +104,10 @@ def get_points(human, image_left, image_right, kx, ky):
             target[clip_ymin: target.shape[0] - clip_ymax, target.shape[1] - (target_xmax - target_xmin):] = \
                 target_from_right
 
-            tic = time.time()
-            for i in range(search_ymax - search_ymin + 1):
-                for j in range(search_xmax - search_xmin + 1):
-                    diff = target[i: i + window.shape[0], j: j + window.shape[1]] - window
-                    ssd[idx, i, j] = np.sum(np.multiply(diff, diff).reshape(-1))
-            print('ssd time++++++++++++++++++++++++++++++++++++')
-            print(time.time() - tic)
+            out = np.zeros((ssd[idx].shape[0], ssd[idx].shape[1]), dtype='int32')
+            compute_ssd(window, target, out, window.shape[1], window.shape[0],
+                        target.shape[1], target.shape[0], ssd[idx].shape[1], ssd[idx].shape[0])
+            ssd[idx] = out
 
             '''plt.subplot(311)
             plt.imshow(window, cmap='gray')
@@ -108,16 +120,15 @@ def get_points(human, image_left, image_right, kx, ky):
             points[idx, 0] = (xmin_f + xmax_f) * kx / 2
             points[idx, 1] = (ymin_f + ymax_f) * ky / 2
             idx = idx + 1
-    print(time.time() - ticx)
+
     heat_map = ssd.sum(axis=0)
     '''plt.imshow(heat_map, cmap='gray')
     plt.show()'''
     mask = np.ones((mask_size, mask_size), dtype='int32')
     convolved = signal.convolve2d(heat_map, mask, 'valid')
     min_idx = np.argmin(convolved.reshape(-1))
-    print(min_idx)
     center_x, center_y = min_idx % convolved.shape[1] + 1, min_idx / convolved.shape[1] + 1
-    print(center_x, center_y)
+    # print(center_x, center_y)
 
     offset_x = (search_xmax - search_xmin - center_x) * scale_ratio
     offset_y = (search_ymin + center_y) * scale_ratio
@@ -137,11 +148,10 @@ def get_points(human, image_left, image_right, kx, ky):
     search_ymin = offset_y - 3
     search_ymax = offset_y + 3
 
-    print(search_xmin, search_xmax, search_ymin, search_ymax)
+    # print(search_xmin, search_xmax, search_ymin, search_ymax)
 
     ssd = np.zeros((len(human) - 1, search_ymax - search_ymin + 1, search_xmax - search_xmin + 1), dtype='int32')
     idx = 0
-    ticx = time.time()
     for key in sorted(human):
         if key != 0:
             ymin_f, xmin_f, ymax_f, xmax_f = human[key]  # TODO change the range of head and hip
@@ -157,11 +167,11 @@ def get_points(human, image_left, image_right, kx, ky):
             ymax = min(int(ymax_f * ky), image_left.shape[0])
             xmax = min(int(xmax_f * kx), image_left.shape[1])
 
-            window = image_left[ymin:ymax, xmin:xmax]
-            print(ymin, ymax, xmin, xmax)
+            window = image_left[ymin:ymax, xmin:xmax].astype(np.int32)
+            # print(ymin, ymax, xmin, xmax)
 
             target = np.full((window.shape[0] + search_ymax - search_ymin,
-                              window.shape[1] + search_xmax - search_xmin), 512, dtype='int16')
+                              window.shape[1] + search_xmax - search_xmin), 512, dtype='int32')
             target_ymin = max(ymin + search_ymin, 0)
             target_ymax = min(ymax + search_ymax, image_right.shape[0])
             target_xmin = max(xmin + search_xmin, 0)
@@ -173,13 +183,10 @@ def get_points(human, image_left, image_right, kx, ky):
             target[clip_ymin: target.shape[0] - clip_ymax, target.shape[1] - (target_xmax - target_xmin):] = \
                 target_from_right
 
-            tic = time.time()
-            for i in range(search_ymax - search_ymin + 1):
-                for j in range(search_xmax - search_xmin + 1):
-                    diff = target[i: i + window.shape[0], j: j + window.shape[1]] - window
-                    ssd[idx, i, j] = np.sum(np.multiply(diff, diff).reshape(-1))
-            print('ssd time---------------------------------')
-            print(time.time() - tic)
+            out = np.zeros((ssd[idx].shape[0], ssd[idx].shape[1]), dtype='int32')
+            compute_ssd(window, target, out, window.shape[1], window.shape[0],
+                        target.shape[1], target.shape[0], ssd[idx].shape[1], ssd[idx].shape[0])
+            ssd[idx] = out
 
             '''plt.subplot(311)
             plt.imshow(window, cmap='gray')
@@ -192,16 +199,14 @@ def get_points(human, image_left, image_right, kx, ky):
             points[idx, 0] = (xmin_f + xmax_f) * kx / 2
             points[idx, 1] = (ymin_f + ymax_f) * ky / 2
             idx = idx + 1
-    print(time.time() - ticx)
     heat_map = ssd.sum(axis=0)
     '''plt.imshow(heat_map, cmap='gray')
     plt.show()'''
     mask = np.ones((mask_size, mask_size), dtype='int32')
     convolved = signal.convolve2d(heat_map, mask, 'valid')
     min_idx = np.argmin(convolved.reshape(-1))
-    print(min_idx)
     center_x, center_y = min_idx % convolved.shape[1] + 1, min_idx / convolved.shape[1] + 1
-    print(center_x, center_y)
+    # print(center_x, center_y)
 
     offset_x = -(search_xmax - search_xmin - center_x) * scale_ratio + search_xmax
     offset_y = (search_ymin + center_y) * scale_ratio + (search_ymin + search_ymax) / 2
@@ -209,10 +214,10 @@ def get_points(human, image_left, image_right, kx, ky):
     candidate_range_x = max(3, int(math.fabs(offset_x / 8)))  # pm
     candidate_range_y = max(1, int(math.fabs(offset_y / 8)))  # pm
 
-    print(offset_x)
+    '''print(offset_x)
     print(offset_y)
     print(candidate_range_x)
-    print(candidate_range_y)
+    print(candidate_range_y)'''
 
     for i in range(ssd.shape[0]): # TODO weighted interpolation
         candidate_ymin = max(center_y - candidate_range_y, 0)
@@ -222,9 +227,8 @@ def get_points(human, image_left, image_right, kx, ky):
         candidate_rigion = ssd[i, candidate_ymin: candidate_ymax, candidate_xmin: candidate_xmax]
         '''plt.imshow(candidate_rigion, cmap='gray')
         plt.show()'''
-        best_candidate_x = (np.argmin(candidate_rigion.reshape(-1)) % (candidate_range_x * 2 + 1))
-        best_candidate_y = (np.argmin(candidate_rigion.reshape(-1)) / (candidate_range_x * 2 + 1))
-        # print(best_candidate_x)
+        best_candidate_x = np.argmin(candidate_rigion.reshape(-1)) % (candidate_xmax - candidate_xmin)
+        best_candidate_y = np.argmin(candidate_rigion.reshape(-1)) / (candidate_xmax - candidate_xmin)
         neighbor_xmin = max(best_candidate_x - 1, 0)
         neighbor_xmax = min(best_candidate_x + 2, candidate_rigion.shape[1])
         neighbor_ymin = max(best_candidate_y - 1, 0)
@@ -235,22 +239,18 @@ def get_points(human, image_left, image_right, kx, ky):
         weight = 1.0 / min_neighbor
         norm_factor = np.sum(weight.reshape(-1))
         weight = weight / norm_factor
-        print(weight)
-        # disparity_center = search_xmax - search_xmin - (center_x - candidate_range_x + best_candidate_x) - offset_x
         disparity_center = candidate_range_x - best_candidate_x - offset_x
         disparity_left = disparity_center + 1 if neighbor_xmin == best_candidate_x - 1 else disparity_center
         disparity_right = disparity_left - weight.shape[1] + 1
         disparity_mat = np.repeat(np.linspace(disparity_left, disparity_right, num=weight.shape[1])[:, np.newaxis],
                                   weight.shape[0], axis=1).transpose()
-        print(disparity_mat)
+        # print(disparity_mat)
         disparity = np.sum(np.multiply(weight, disparity_mat).reshape(-1))
-        # disparity = search_xmax - search_xmin - (center_x - candidate_range_x + best_candidate_x)
-        print(disparity)
+        # print(disparity)
         depth = (FocalLength * BaseLine) / (disparity + 0.0000001)
-        print(depth)
+        # print(depth)
         points[i, 2] = depth
-        print('----------------')
-    print(time.time() - start_time) # TODO speed up with cuda
+    print(time.time() - start_time)
     return points
 
 

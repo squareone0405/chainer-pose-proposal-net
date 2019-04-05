@@ -9,6 +9,23 @@ from cv_bridge import CvBridge
 
 import matplotlib.pyplot as plt
 from scipy import signal
+import math
+
+import ctypes
+from ctypes import cdll
+
+lib = cdll.LoadLibrary('./build/ssd.so')
+ssd_cuda = lib.ssd
+
+
+def compute_ssd(window, target, out, window_width, window_height,
+                target_width, target_height, out_width, out_height):
+    ssd_cuda(ctypes.c_void_p(window.ctypes.data),
+             ctypes.c_void_p(target.ctypes.data),
+             ctypes.c_void_p(out.ctypes.data),
+             ctypes.c_int32(window_width), ctypes.c_int32(window_height),
+             ctypes.c_int32(target_width), ctypes.c_int32(target_height),
+             ctypes.c_int32(out_width), ctypes.c_int32(out_height))
 
 import configparser
 import os
@@ -156,50 +173,77 @@ class Predictor(threading.Thread):
             print('done pub')
 
     def get_points(self, human, image_left, image_right):
+        BaseLine = 0.12
+        FocalLength = 700
+
         types = []
         points = np.zeros((len(human) - 1, 3), dtype='float64')
-        BaseLine = 0.12
-        FocalLength = 350
-        start_time = time.time()
-        search_range_x = 30
-        search_range_y = 3  # pm
-        offset_y = 0
         mask_size = 3
-        candidate_range_x = 3  # pm
-        candidate_range_y = 1  # pm
         interp_range = (0.1, 1)
-        ssd = np.zeros((len(human) - 1, search_range_y * 2 + 1, search_range_x + 1), dtype='int32')
+
+        start_time = time.time()
+        image_left_ori = image_left
+        image_right_ori = image_right
+        kx_ori = self.cap.kx
+        ky_ori = self.cap.ky
+
+        scale_ratio = 8
+        image_left = cv2.resize(image_left_ori, (int(image_left_ori.shape[1] / scale_ratio),
+                                                 int(image_left_ori.shape[0] / scale_ratio)), cv2.INTER_CUBIC)
+        image_right = cv2.resize(image_right_ori, (int(image_right_ori.shape[1] / scale_ratio),
+                                                   int(image_right_ori.shape[0] / scale_ratio)), cv2.INTER_CUBIC)
+
+        '''plt.imshow(image_left, cmap='gray')
+        plt.show()
+        plt.imshow(image_right, cmap='gray')
+        plt.show()'''
+
+        kx = kx_ori / scale_ratio
+        ky = ky_ori / scale_ratio
+
+        search_xmin = -20
+        search_xmax = 0
+        search_ymin = -3
+        search_ymax = 3
+
+        ssd = np.zeros((len(human) - 1, search_ymax - search_ymin + 1, search_xmax - search_xmin + 1), dtype='int32')
         idx = 0
         for key in sorted(human):
             if key != 0:
                 types.append(key)
-                ymin_f, xmin_f, ymax_f, xmax_f = human[key]  # TODO range check
-                ymin = int(ymin_f * self.cap.ky) if int(ymin_f * self.cap.ky) > 0 else 0
-                xmin = int(xmin_f * self.cap.kx) if int(xmin_f * self.cap.kx) > 0 else 0
-                ymax = int(ymax_f * self.cap.ky) if int(ymax_f * self.cap.ky) < image_left.shape[0] \
-                    else image_left.shape[0]
-                xmax = int(xmax_f * self.cap.kx) if int(xmax_f * self.cap.kx) < image_left.shape[1] \
-                    else image_left.shape[1]
-                window = image_left[ymin:ymax, xmin:xmax]
+                ymin_f, xmin_f, ymax_f, xmax_f = human[key]  # TODO change the range of head and hip
 
-                target = np.full((window.shape[0] + search_range_y * 2, window.shape[1] + search_range_x), 512)
-                target_ymin = offset_y + ymin - search_range_y if offset_y + ymin - search_range_y > 0 else 0
-                target_ymax = offset_y + ymax + search_range_y if offset_y + ymax + search_range_y < \
-                                                                  image_right.shape[0] else image_right.shape[0]
-                target_xmin = xmin - search_range_x if xmin - search_range_x > 0 else 0
-                target_xmax = xmax
+                if key == 1:  # head top
+                    ymin_f = ymin_f * 0.7 + ymax_f * 0.3
+                if key in [9, 10]:  # left hip or right hip
+                    xmin_f = xmin_f - (xmax_f - xmin_f) * 0.3
+                    xmax_f = xmax_f + (xmax_f - xmin_f) * 0.3
+
+                ymin = max(int(ymin_f * ky), 0)
+                xmin = max(int(xmin_f * kx), 0)
+                ymax = min(int(ymax_f * ky), image_left.shape[0])
+                xmax = min(int(xmax_f * kx), image_left.shape[1])
+
+                window = image_left[ymin:ymax, xmin:xmax].astype(np.int32)
+                # print(ymin, ymax, xmin, xmax)
+
+                target = np.full((window.shape[0] + search_ymax - search_ymin,
+                                  window.shape[1] + search_xmax - search_xmin), 512, dtype='int32')
+                target_ymin = max(ymin + search_ymin, 0)
+                target_ymax = min(ymax + search_ymax, image_right.shape[0])
+                target_xmin = max(xmin + search_xmin, 0)
+                target_xmax = min(xmax + search_xmax, image_right.shape[1])
                 target_from_right = image_right[target_ymin:target_ymax, target_xmin:target_xmax]
-                clip_ymin = 0 if offset_y + ymin - search_range_y > 0 else -(offset_y + ymin - search_range_y)
-                clip_ymax = 0 if offset_y + ymax + search_range_y < image_right.shape[0] \
-                    else (offset_y + ymax + search_range_y) - image_right.shape[0]
+                clip_ymin = max(-(ymin + search_ymin), 0)
+                clip_ymax = max(ymax + search_ymax - image_right.shape[0], 0)
 
                 target[clip_ymin: target.shape[0] - clip_ymax, target.shape[1] - (target_xmax - target_xmin):] = \
                     target_from_right
 
-                for i in range(search_range_y * 2 + 1):
-                    for j in range(search_range_x + 1):
-                        diff = target[i: i + window.shape[0], j: j + window.shape[1]] - window
-                        ssd[idx, i, j] = np.sum(np.multiply(diff, diff).reshape(-1))
+                out = np.zeros((ssd[idx].shape[0], ssd[idx].shape[1]), dtype='int32')
+                compute_ssd(window, target, out, window.shape[1], window.shape[0],
+                            target.shape[1], target.shape[0], ssd[idx].shape[1], ssd[idx].shape[0])
+                ssd[idx] = out
 
                 '''plt.subplot(311)
                 plt.imshow(window, cmap='gray')
@@ -208,8 +252,88 @@ class Predictor(threading.Thread):
                 plt.subplot(313)
                 plt.imshow(ssd[idx], cmap='gray')
                 plt.show()'''
-                points[idx, 0] = (xmin_f + xmax_f) * self.cap.kx / 2
-                points[idx, 1] = (ymin_f + ymax_f) * self.cap.ky / 2
+
+                points[idx, 0] = (xmin_f + xmax_f) * kx / 2
+                points[idx, 1] = (ymin_f + ymax_f) * ky / 2
+                idx = idx + 1
+
+        heat_map = ssd.sum(axis=0)
+        '''plt.imshow(heat_map, cmap='gray')
+        plt.show()'''
+        mask = np.ones((mask_size, mask_size), dtype='int32')
+        convolved = signal.convolve2d(heat_map, mask, 'valid')
+        min_idx = np.argmin(convolved.reshape(-1))
+        center_x, center_y = min_idx % convolved.shape[1] + 1, min_idx / convolved.shape[1] + 1
+        # print(center_x, center_y)
+
+        offset_x = (search_xmax - search_xmin - center_x) * scale_ratio
+        offset_y = (search_ymin + center_y) * scale_ratio
+
+        '''round 2'''
+        scale_ratio = 1
+        image_left = cv2.resize(image_left_ori, (int(image_left_ori.shape[1] / scale_ratio),
+                                                 int(image_left_ori.shape[0] / scale_ratio)), cv2.INTER_CUBIC)
+        image_right = cv2.resize(image_right_ori, (int(image_right_ori.shape[1] / scale_ratio),
+                                                   int(image_right_ori.shape[0] / scale_ratio)), cv2.INTER_CUBIC)
+
+        kx = kx_ori / scale_ratio
+        ky = ky_ori / scale_ratio
+
+        search_xmin = -offset_x - max(4, int(offset_x / 6))
+        search_xmax = -offset_x + max(4, int(offset_x / 6))
+        search_ymin = offset_y - 3
+        search_ymax = offset_y + 3
+
+        # print(search_xmin, search_xmax, search_ymin, search_ymax)
+
+        ssd = np.zeros((len(human) - 1, search_ymax - search_ymin + 1, search_xmax - search_xmin + 1), dtype='int32')
+        idx = 0
+        for key in sorted(human):
+            if key != 0:
+                ymin_f, xmin_f, ymax_f, xmax_f = human[key]  # TODO change the range of head and hip
+
+                if key == 1:  # head top
+                    ymin_f = ymin_f * 0.7 + ymax_f * 0.3
+                if key in [9, 10]:  # left hip or right hip
+                    xmin_f = xmin_f - (xmax_f - xmin_f) * 0.3
+                    xmax_f = xmax_f + (xmax_f - xmin_f) * 0.3
+
+                ymin = max(int(ymin_f * ky), 0)
+                xmin = max(int(xmin_f * kx), 0)
+                ymax = min(int(ymax_f * ky), image_left.shape[0])
+                xmax = min(int(xmax_f * kx), image_left.shape[1])
+
+                window = image_left[ymin:ymax, xmin:xmax].astype(np.int32)
+                # print(ymin, ymax, xmin, xmax)
+
+                target = np.full((window.shape[0] + search_ymax - search_ymin,
+                                  window.shape[1] + search_xmax - search_xmin), 512, dtype='int32')
+                target_ymin = max(ymin + search_ymin, 0)
+                target_ymax = min(ymax + search_ymax, image_right.shape[0])
+                target_xmin = max(xmin + search_xmin, 0)
+                target_xmax = min(xmax + search_xmax, image_right.shape[1])
+                target_from_right = image_right[target_ymin:target_ymax, target_xmin:target_xmax]
+                clip_ymin = max(-(ymin + search_ymin), 0)
+                clip_ymax = max(ymax + search_ymax - image_right.shape[0], 0)
+
+                target[clip_ymin: target.shape[0] - clip_ymax, target.shape[1] - (target_xmax - target_xmin):] = \
+                    target_from_right
+
+                out = np.zeros((ssd[idx].shape[0], ssd[idx].shape[1]), dtype='int32')
+                compute_ssd(window, target, out, window.shape[1], window.shape[0],
+                            target.shape[1], target.shape[0], ssd[idx].shape[1], ssd[idx].shape[0])
+                ssd[idx] = out
+
+                '''plt.subplot(311)
+                plt.imshow(window, cmap='gray')
+                plt.subplot(312)
+                plt.imshow(target, cmap='gray')
+                plt.subplot(313)
+                plt.imshow(ssd[idx], cmap='gray')
+                plt.show()'''
+
+                points[idx, 0] = (xmin_f + xmax_f) * kx / 2
+                points[idx, 1] = (ymin_f + ymax_f) * ky / 2
                 idx = idx + 1
         heat_map = ssd.sum(axis=0)
         '''plt.imshow(heat_map, cmap='gray')
@@ -218,44 +342,52 @@ class Predictor(threading.Thread):
         convolved = signal.convolve2d(heat_map, mask, 'valid')
         min_idx = np.argmin(convolved.reshape(-1))
         center_x, center_y = min_idx % convolved.shape[1] + 1, min_idx / convolved.shape[1] + 1
+        # print(center_x, center_y)
+
+        offset_x = -(search_xmax - search_xmin - center_x) * scale_ratio + search_xmax
+        offset_y = (search_ymin + center_y) * scale_ratio + (search_ymin + search_ymax) / 2
+
+        candidate_range_x = max(3, int(math.fabs(offset_x / 8)))  # pm
+        candidate_range_y = max(1, int(math.fabs(offset_y / 8)))  # pm
+
+        '''print(offset_x)
+        print(offset_y)
+        print(candidate_range_x)
+        print(candidate_range_y)'''
 
         for i in range(ssd.shape[0]):  # TODO weighted interpolation
-            candidate_ymin = center_y - candidate_range_y if center_y - candidate_range_y > 0 else 0
-            candidata_ymax = center_y + candidate_range_y + 1 if center_y + candidate_range_y + 1 < ssd.shape[1] \
-                else ssd.shape[1]
-            candidata_xmin = center_x - candidate_range_x if center_x - candidate_range_x > 0 else 0
-            candidata_xmax = center_x + candidate_range_x + 1 if center_x + candidate_range_x + 1 < ssd.shape[2] \
-                else ssd.shape[2]
-            candidate_rigion = ssd[i, candidate_ymin: candidata_ymax, candidata_xmin: candidata_xmax]
-
+            candidate_ymin = max(center_y - candidate_range_y, 0)
+            candidate_ymax = min(center_y + candidate_range_y + 1, ssd.shape[1])
+            candidate_xmin = max(center_x - candidate_range_x, 0)
+            candidate_xmax = min(center_x + candidate_range_x + 1, ssd.shape[2])
+            candidate_rigion = ssd[i, candidate_ymin: candidate_ymax, candidate_xmin: candidate_xmax]
             '''plt.imshow(candidate_rigion, cmap='gray')
             plt.show()'''
-            best_candidate_x = (np.argmin(candidate_rigion.reshape(-1)) % (candidate_rigion.shape[1]))
-            best_candidate_y = (np.argmin(candidate_rigion.reshape(-1)) / (candidate_rigion.shape[1]))
-            neignbor_xmin = best_candidate_x - 1 if best_candidate_x - 1 > 0 else 0
-            neignbor_xmax = best_candidate_x + 2 if best_candidate_x + 2 < candidate_rigion.shape[1] \
-                else candidate_rigion.shape[1]
-            neignbor_ymin = best_candidate_y - 1 if best_candidate_y - 1 > 0 else 0
-            neignbor_ymax = best_candidate_y + 2 if best_candidate_y + 2 < candidate_rigion.shape[0] \
-                else candidate_rigion.shape[0]
-            min_neignbor = candidate_rigion[neignbor_ymin: neignbor_ymax, neignbor_xmin: neignbor_xmax]
-            min_neignbor = np.interp(min_neignbor, (np.min(min_neignbor.reshape(-1)), np.max(min_neignbor.reshape(-1))),
+            best_candidate_x = np.argmin(candidate_rigion.reshape(-1)) % (candidate_xmax - candidate_xmin)
+            best_candidate_y = np.argmin(candidate_rigion.reshape(-1)) / (candidate_xmax - candidate_xmin)
+            neighbor_xmin = max(best_candidate_x - 1, 0)
+            neighbor_xmax = min(best_candidate_x + 2, candidate_rigion.shape[1])
+            neighbor_ymin = max(best_candidate_y - 1, 0)
+            neighbor_ymax = min(best_candidate_y + 2, candidate_rigion.shape[0])
+            min_neighbor = candidate_rigion[neighbor_ymin: neighbor_ymax, neighbor_xmin: neighbor_xmax]
+            min_neighbor = np.interp(min_neighbor, (np.min(min_neighbor.reshape(-1)), np.max(min_neighbor.reshape(-1))),
                                      interp_range)
-            weight = 1.0 / min_neignbor
+            weight = 1.0 / min_neighbor
             norm_factor = np.sum(weight.reshape(-1))
             weight = weight / norm_factor
-            disparity_center = search_range_x - (center_x - candidate_range_x + best_candidate_x)
-            disparity_left = disparity_center + 1 if disparity_center + 1 < search_range_x else disparity_center
-            disparity_right = disparity_left - weight.shape[1] + 1 if disparity_left - weight.shape[1] + 1 >= 0 else 0
+            disparity_center = candidate_range_x - best_candidate_x - offset_x
+            disparity_left = disparity_center + 1 if neighbor_xmin == best_candidate_x - 1 else disparity_center
+            disparity_right = disparity_left - weight.shape[1] + 1
             disparity_mat = np.repeat(np.linspace(disparity_left, disparity_right, num=weight.shape[1])[:, np.newaxis],
                                       weight.shape[0], axis=1).transpose()
+            # print(disparity_mat)
             disparity = np.sum(np.multiply(weight, disparity_mat).reshape(-1))
+            # print(disparity)
             depth = (FocalLength * BaseLine) / (disparity + 0.0000001)
+            # print(depth)
             points[i, 2] = depth
-        print(time.time() - start_time)  # TODO speed up with cuda
-        print('returning points***********************')
+        print(time.time() - start_time)
         print(points)
-        print(types)
         return points.tolist(), types
 
 
