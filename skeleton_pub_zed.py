@@ -60,7 +60,8 @@ class Capture(threading.Thread):
         self.zed = sl.Camera()
         self.init = sl.InitParameters()
         self.init.camera_resolution = sl.RESOLUTION.RESOLUTION_HD720
-        self.init.depth_mode = sl.DEPTH_MODE.DEPTH_MODE_PERFORMANCE
+        self.init.camera_fps = 30
+        self.init.depth_mode = sl.DEPTH_MODE.DEPTH_MODE_NONE
         self.init.coordinate_units = sl.UNIT.UNIT_METER
 
         err = self.zed.open(self.init)
@@ -68,6 +69,8 @@ class Capture(threading.Thread):
             print(repr(err))
             self.zed.close()
             exit(1)
+
+        self.calibration_params = self.zed.get_camera_information().calibration_parameters
 
         self.runtime = sl.RuntimeParameters()
         self.runtime.sensing_mode = sl.SENSING_MODE.SENSING_MODE_STANDARD
@@ -81,6 +84,12 @@ class Capture(threading.Thread):
         self.stop_event = threading.Event()
         self.queue = Queue.Queue(QUEUE_SIZE)
         self.name = 'Capture'
+
+    def pix2cam(self, point):
+        x = point[2] * (point[0] - self.calibration_params.left_cam.cx) / self.calibration_params.left_cam.fx
+        y = point[2] * (point[1] - self.calibration_params.left_cam.cy) / self.calibration_params.left_cam.fy
+        z = point[2]
+        return [x, y, z]
 
     def run(self):
         image_size = self.zed.get_resolution()
@@ -174,7 +183,7 @@ class Predictor(threading.Thread):
 
     def get_points(self, human, image_left, image_right):
         BaseLine = 0.12
-        FocalLength = 700
+        FocalLength = self.cap.calibration_params.left_cam.fx
 
         types = []
         points = np.zeros((len(human) - 1, 3), dtype='float64')
@@ -187,7 +196,8 @@ class Predictor(threading.Thread):
         kx_ori = self.cap.kx
         ky_ori = self.cap.ky
 
-        scale_ratio = 8
+        scale_ratio = 8 if image_left.shape[1] > 1000 else 2
+
         image_left = cv2.resize(image_left_ori, (int(image_left_ori.shape[1] / scale_ratio),
                                                  int(image_left_ori.shape[0] / scale_ratio)), cv2.INTER_CUBIC)
         image_right = cv2.resize(image_right_ori, (int(image_right_ori.shape[1] / scale_ratio),
@@ -387,6 +397,8 @@ class Predictor(threading.Thread):
             # print(depth)
             points[i, 2] = depth
         print(time.time() - start_time)
+        for i in range(len(points)):
+            points[i] = self.cap.pix2cam(points[i])
         print(points)
         return points.tolist(), types
 
@@ -403,14 +415,6 @@ def main():
     else:
         mask = None
 
-    cap = cv2.VideoCapture(0)
-    if cap.isOpened() is False:
-        print('Error opening video stream or file')
-        exit(1)
-
-    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
-    logger.info('camera will capture {} FPS'.format(cap.get(cv2.CAP_PROP_FPS)))
-
     capture = Capture(model.insize)
     predictor = Predictor(model=model, cap=capture)
 
@@ -423,7 +427,7 @@ def main():
     main_event = threading.Event()
 
     try:
-        while not main_event.is_set() and cap.isOpened():
+        while not main_event.is_set():
             degree += 5
             degree = degree % 360
             try:

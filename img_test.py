@@ -40,7 +40,7 @@ from utils import parse_size
 
 def get_points(human, image_left, image_right, kx, ky):
     BaseLine = 0.12
-    FocalLength = 1400
+    FocalLength = 350
 
     points = np.zeros((len(human) - 1, 3), dtype='float64')
     mask_size = 3
@@ -52,7 +52,7 @@ def get_points(human, image_left, image_right, kx, ky):
     kx_ori = kx
     ky_ori = ky
 
-    scale_ratio = 8
+    scale_ratio = 2
     image_left = cv2.resize(image_left_ori, (int(image_left_ori.shape[1] / scale_ratio),
                                          int(image_left_ori.shape[0] / scale_ratio)), cv2.INTER_CUBIC)
     image_right = cv2.resize(image_right_ori, (int(image_right_ori.shape[1] / scale_ratio),
@@ -68,8 +68,8 @@ def get_points(human, image_left, image_right, kx, ky):
 
     search_xmin = -20
     search_xmax = 0
-    search_ymin = -3
-    search_ymax = 3
+    search_ymin = -4
+    search_ymax = 4
 
     ssd = np.zeros((len(human) - 1, search_ymax - search_ymin + 1, search_xmax - search_xmin + 1), dtype='int32')
     idx = 0
@@ -109,21 +109,21 @@ def get_points(human, image_left, image_right, kx, ky):
                         target.shape[1], target.shape[0], ssd[idx].shape[1], ssd[idx].shape[0])
             ssd[idx] = out
 
-            '''plt.subplot(311)
+            plt.subplot(311)
             plt.imshow(window, cmap='gray')
             plt.subplot(312)
             plt.imshow(target, cmap='gray')
             plt.subplot(313)
             plt.imshow(ssd[idx], cmap='gray')
-            plt.show()'''
+            plt.show()
 
             points[idx, 0] = (xmin_f + xmax_f) * kx / 2
             points[idx, 1] = (ymin_f + ymax_f) * ky / 2
             idx = idx + 1
 
     heat_map = ssd.sum(axis=0)
-    '''plt.imshow(heat_map, cmap='gray')
-    plt.show()'''
+    plt.imshow(heat_map, cmap='gray')
+    plt.show()
     mask = np.ones((mask_size, mask_size), dtype='int32')
     convolved = signal.convolve2d(heat_map, mask, 'valid')
     min_idx = np.argmin(convolved.reshape(-1))
@@ -145,8 +145,8 @@ def get_points(human, image_left, image_right, kx, ky):
 
     search_xmin = -offset_x - max(4, int(offset_x / 6))
     search_xmax = -offset_x + max(4, int(offset_x / 6))
-    search_ymin = offset_y - 3
-    search_ymax = offset_y + 3
+    search_ymin = offset_y - 4
+    search_ymax = offset_y + 4
 
     # print(search_xmin, search_xmax, search_ymin, search_ymax)
 
@@ -188,20 +188,20 @@ def get_points(human, image_left, image_right, kx, ky):
                         target.shape[1], target.shape[0], ssd[idx].shape[1], ssd[idx].shape[0])
             ssd[idx] = out
 
-            '''plt.subplot(311)
+            plt.subplot(311)
             plt.imshow(window, cmap='gray')
             plt.subplot(312)
             plt.imshow(target, cmap='gray')
             plt.subplot(313)
             plt.imshow(ssd[idx], cmap='gray')
-            plt.show()'''
+            plt.show()
 
             points[idx, 0] = (xmin_f + xmax_f) * kx / 2
             points[idx, 1] = (ymin_f + ymax_f) * ky / 2
             idx = idx + 1
     heat_map = ssd.sum(axis=0)
-    '''plt.imshow(heat_map, cmap='gray')
-    plt.show()'''
+    plt.imshow(heat_map, cmap='gray')
+    plt.show()
     mask = np.ones((mask_size, mask_size), dtype='int32')
     convolved = signal.convolve2d(heat_map, mask, 'valid')
     min_idx = np.argmin(convolved.reshape(-1))
@@ -225,8 +225,8 @@ def get_points(human, image_left, image_right, kx, ky):
         candidate_xmin = max(center_x - candidate_range_x, 0)
         candidate_xmax = min(center_x + candidate_range_x + 1, ssd.shape[2])
         candidate_rigion = ssd[i, candidate_ymin: candidate_ymax, candidate_xmin: candidate_xmax]
-        '''plt.imshow(candidate_rigion, cmap='gray')
-        plt.show()'''
+        plt.imshow(candidate_rigion, cmap='gray')
+        plt.show()
         best_candidate_x = np.argmin(candidate_rigion.reshape(-1)) % (candidate_xmax - candidate_xmin)
         best_candidate_y = np.argmin(candidate_rigion.reshape(-1)) / (candidate_xmax - candidate_xmin)
         neighbor_xmin = max(best_candidate_x - 1, 0)
@@ -260,8 +260,8 @@ def main():
 
     model = create_model(config)
 
-    image_left_ori = cv2.imread('czp_l.png')
-    image_right_ori = cv2.imread('czp_r.png')
+    image_left_ori = cv2.imread('lwb_l.png')
+    image_right_ori = cv2.imread('lwb_r.png')
     shape_ori = image_left_ori.shape
     image_left = cv2.cvtColor(image_left_ori, cv2.COLOR_BGR2RGB)
     image_left = cv2.resize(image_left, model.insize)

@@ -43,16 +43,16 @@ def skeleton_callback(skeleton):
             if skeleton.skeleton_num[human_idx] < 4:
                 print('skipppppppppppppppppppp')
                 continue
-            index = 0
             for skeleton_idx in range(skeleton.skeleton_num[human_idx]):
+                index = human_idx * 14 + skeleton_idx
                 marker = Marker()
                 marker.header = std_msgs.msg.Header()
                 marker.header.frame_id = 'map'
                 marker.header.stamp = rospy.Time.now()
                 marker.id = skeleton.types[index]
-                marker.pose.position.x = skeleton.points[index].x / 100
-                marker.pose.position.y = skeleton.points[index].y / 100
-                marker.pose.position.z = skeleton.points[index].z / 1
+                marker.pose.position.x = skeleton.points[index].x
+                marker.pose.position.y = skeleton.points[index].y
+                marker.pose.position.z = skeleton.points[index].z
                 point_list = np.append(point_list,
                                        [marker.pose.position.x, marker.pose.position.y, marker.pose.position.z], axis=0)
                 '''print("x:" + str(marker.pose.position.x))
@@ -72,20 +72,33 @@ def skeleton_callback(skeleton):
                 marker.color.r = COLOR_LIST[skeleton.types[index] - 1][0] / 255.0
                 marker.color.g = COLOR_LIST[skeleton.types[index] - 1][1] / 255.0
                 marker.color.b = COLOR_LIST[skeleton.types[index] - 1][2] / 255.0
-                index = index + 1
-                msg.markers[human_idx * 14 + skeleton_idx] = marker
+                msg.markers[index] = marker
             point_list = point_list.reshape((-1, 3))
             center = np.average(point_list, axis=0)
             centered_point = point_list - np.mean(point_list, axis=0)
             U, S, V = np.linalg.svd(centered_point, full_matrices=False)
             print('mean')
             print(np.mean(point_list, axis=0))
-            print('***************************P')
-            print(centered_point)
             print('---------------------------U')
             print(S)
             print('+++++++++++++++++++++++++++V')
             print(V)
+            xyz_order = np.argmax(V, axis=1)
+            y_idx = np.where(xyz_order == 1)
+            y_vec = V[y_idx]
+            print(y_vec)
+            skeleton_before = sum(skeleton.skeleton_num[:human_idx])
+            types_curr_human = skeleton.types[skeleton_before: skeleton_before + skeleton.skeleton_num[human_idx]]
+            # TODO may be wrong if skeleton is incomplete
+            if 9 in types_curr_human and 10 in types_curr_human: # l_hip and r_hip
+                point_l_hip = skeleton.points[skeleton_before + types_curr_human.index(9)]
+                point_r_hip = skeleton.points[skeleton_before + types_curr_human.index(10)]
+                vec = np.array(point_l_hip - point_r_hip)
+                print(np.dot(vec, y_vec))
+                print('****************************************************')
+                print(point_l_hip)
+                print(point_r_hip)
+
             for arrow_idx in range(3):
                 marker = Marker()
                 marker.header = std_msgs.msg.Header()
