@@ -31,7 +31,7 @@ class Capture(threading.Thread):
         self.zed = sl.Camera()
         self.init = sl.InitParameters()
         self.init.camera_resolution = sl.RESOLUTION.RESOLUTION_VGA
-        self.init.depth_mode = sl.DEPTH_MODE.DEPTH_MODE_PERFORMANCE
+        self.init.depth_mode = sl.DEPTH_MODE.DEPTH_MODE_NONE
         self.init.coordinate_units = sl.UNIT.UNIT_METER
 
         err = self.zed.open(self.init)
@@ -57,7 +57,6 @@ class Capture(threading.Thread):
         new_height = image_size.height
         print("ZED will capture at %d x %d" % (new_width, new_height))
         image_zed = sl.Mat(new_width, new_height, sl.MAT_TYPE.MAT_TYPE_8U_C4)
-        depth_zed = sl.Mat()
         while not self.stop_event.is_set():
             try:
                 err = self.zed.grab(self.runtime)
@@ -65,9 +64,6 @@ class Capture(threading.Thread):
                     self.zed.retrieve_image(image_zed, sl.VIEW.VIEW_LEFT, sl.MEM.MEM_CPU, int(new_width),
                                             int(new_height))
                     image = image_zed.get_data()
-                    self.zed.retrieve_measure(depth_zed, sl.MEASURE.MEASURE_DEPTH)
-                    depth = depth_zed.get_data()
-                    cv2.imshow('CV', depth)
                     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
                     image = cv2.resize(image, self.insize)
                     self.queue.put(image, timeout=1)
@@ -130,12 +126,6 @@ def main():
     if cap.isOpened() is False:
         print('Error opening video stream or file')
         exit(1)
-
-    cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
-    '''cap.set(cv2.CAP_PROP_FPS, 60)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)'''
-    logger.info('camera will capture {} FPS'.format(cap.get(cv2.CAP_PROP_FPS)))
 
     capture = Capture(model.insize)
     predictor = Predictor(model=model, cap=capture)

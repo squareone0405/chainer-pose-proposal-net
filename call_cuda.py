@@ -17,12 +17,12 @@ def compute_ssd(window, target, out, window_width, window_height,
              ctypes.c_int32(out_width), ctypes.c_int32(out_height))
 
 
-window_width = 500
-window_height = 500
-target_width = 520
-target_height = 506
+window_width = 50
+window_height = 50
+target_width = 70
+target_height = 60
 out_width = 21
-out_height = 7
+out_height = 11
 
 window = np.ones((window_height, window_width), dtype='int32')
 target = np.zeros((target_height, target_width), dtype='int32')

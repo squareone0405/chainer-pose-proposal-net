@@ -19,13 +19,15 @@ ssd_cuda = lib.ssd
 
 
 def compute_ssd(window, target, out, window_width, window_height,
-                target_width, target_height, out_width, out_height):
+                target_width, target_height, out_width, out_height, num):
     ssd_cuda(ctypes.c_void_p(window.ctypes.data),
              ctypes.c_void_p(target.ctypes.data),
              ctypes.c_void_p(out.ctypes.data),
-             ctypes.c_int32(window_width), ctypes.c_int32(window_height),
-             ctypes.c_int32(target_width), ctypes.c_int32(target_height),
-             ctypes.c_int32(out_width), ctypes.c_int32(out_height))
+             ctypes.c_void_p(window_width.ctypes.data),
+             ctypes.c_void_p(window_height.ctypes.data),
+             ctypes.c_void_p(target_width.ctypes.data),
+             ctypes.c_void_p(target_height.ctypes.data),
+             ctypes.c_int32(out_width), ctypes.c_int32(out_height), ctypes.c_int32(num))
 
 import configparser
 import os
@@ -59,7 +61,7 @@ class Capture(threading.Thread):
     def _init_zed(self):
         self.zed = sl.Camera()
         self.init = sl.InitParameters()
-        self.init.camera_resolution = sl.RESOLUTION.RESOLUTION_HD720
+        self.init.camera_resolution = sl.RESOLUTION.RESOLUTION_VGA
         self.init.camera_fps = 30
         self.init.depth_mode = sl.DEPTH_MODE.DEPTH_MODE_NONE
         self.init.coordinate_units = sl.UNIT.UNIT_METER
@@ -196,7 +198,7 @@ class Predictor(threading.Thread):
         kx_ori = self.cap.kx
         ky_ori = self.cap.ky
 
-        scale_ratio = 8 if image_left.shape[1] > 1000 else 2
+        scale_ratio = 8 if image_left.shape[1] > 1000 else 4
 
         image_left = cv2.resize(image_left_ori, (int(image_left_ori.shape[1] / scale_ratio),
                                                  int(image_left_ori.shape[0] / scale_ratio)), cv2.INTER_CUBIC)
@@ -215,6 +217,13 @@ class Predictor(threading.Thread):
         search_xmax = 0
         search_ymin = -3
         search_ymax = 3
+
+        window_all = np.array([], dtype='int32')
+        target_all = np.array([], dtype='int32')
+        window_width = np.zeros((len(human) - 1), dtype='int32')
+        window_height = np.zeros((len(human) - 1), dtype='int32')
+        target_width = np.zeros((len(human) - 1), dtype='int32')
+        target_height = np.zeros((len(human) - 1), dtype='int32')
 
         ssd = np.zeros((len(human) - 1, search_ymax - search_ymin + 1, search_xmax - search_xmin + 1), dtype='int32')
         idx = 0
@@ -250,10 +259,14 @@ class Predictor(threading.Thread):
                 target[clip_ymin: target.shape[0] - clip_ymax, target.shape[1] - (target_xmax - target_xmin):] = \
                     target_from_right
 
-                out = np.zeros((ssd[idx].shape[0], ssd[idx].shape[1]), dtype='int32')
-                compute_ssd(window, target, out, window.shape[1], window.shape[0],
-                            target.shape[1], target.shape[0], ssd[idx].shape[1], ssd[idx].shape[0])
-                ssd[idx] = out
+                window_all = np.append(window_all, window.flatten())
+                target_all = np.append(target_all, target.flatten())
+                window_width[idx] = window.shape[1]
+                window_height[idx] = window.shape[0]
+                target_width[idx] = target.shape[1]
+                target_height[idx] = target.shape[0]
+
+                idx = idx + 1
 
                 '''plt.subplot(311)
                 plt.imshow(window, cmap='gray')
@@ -263,10 +276,10 @@ class Predictor(threading.Thread):
                 plt.imshow(ssd[idx], cmap='gray')
                 plt.show()'''
 
-                points[idx, 0] = (xmin_f + xmax_f) * kx / 2
-                points[idx, 1] = (ymin_f + ymax_f) * ky / 2
-                idx = idx + 1
-
+        out = np.zeros_like(ssd, dtype='int32')
+        compute_ssd(window_all, target_all, out, window_width, window_height,
+                    target_width, target_height, ssd.shape[2], ssd.shape[1], len(human) - 1)
+        ssd = out
         heat_map = ssd.sum(axis=0)
         '''plt.imshow(heat_map, cmap='gray')
         plt.show()'''
@@ -329,10 +342,14 @@ class Predictor(threading.Thread):
                 target[clip_ymin: target.shape[0] - clip_ymax, target.shape[1] - (target_xmax - target_xmin):] = \
                     target_from_right
 
-                out = np.zeros((ssd[idx].shape[0], ssd[idx].shape[1]), dtype='int32')
-                compute_ssd(window, target, out, window.shape[1], window.shape[0],
-                            target.shape[1], target.shape[0], ssd[idx].shape[1], ssd[idx].shape[0])
-                ssd[idx] = out
+                window_all = np.append(window_all, window.flatten())
+                target_all = np.append(target_all, target.flatten())
+                window_width[idx] = window.shape[1]
+                window_height[idx] = window.shape[0]
+                target_width[idx] = target.shape[1]
+                target_height[idx] = target.shape[0]
+
+                idx = idx + 1
 
                 '''plt.subplot(311)
                 plt.imshow(window, cmap='gray')
@@ -341,10 +358,11 @@ class Predictor(threading.Thread):
                 plt.subplot(313)
                 plt.imshow(ssd[idx], cmap='gray')
                 plt.show()'''
+        out = np.zeros_like(ssd, dtype='int32')
+        compute_ssd(window_all, target_all, out, window_width, window_height,
+                    target_width, target_height, ssd.shape[2], ssd.shape[1], len(human) - 1)
+        ssd = out
 
-                points[idx, 0] = (xmin_f + xmax_f) * kx / 2
-                points[idx, 1] = (ymin_f + ymax_f) * ky / 2
-                idx = idx + 1
         heat_map = ssd.sum(axis=0)
         '''plt.imshow(heat_map, cmap='gray')
         plt.show()'''
