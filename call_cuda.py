@@ -17,10 +17,10 @@ def compute_ssd(window, target, out, window_width, window_height,
              ctypes.c_int32(out_width), ctypes.c_int32(out_height))
 
 
-window_width = 100
-window_height = 100
-target_width = 120
-target_height = 106
+window_width = 500
+window_height = 500
+target_width = 520
+target_height = 506
 out_width = 21
 out_height = 7
 

@@ -34,7 +34,7 @@ extern "C" void ssd(const void *window_, const void *target_, void *out_,
 					const int window_width, const int window_height,
 					const int target_width, const int target_height,
 					const int out_width, const int out_height) {
-	//long second = getMicrotime();
+	long second = getMicrotime();
 	/*cudaSetDevice(0);
 	cudaDeviceSynchronize();
 	cudaThreadSynchronize();*/
@@ -55,26 +55,33 @@ extern "C" void ssd(const void *window_, const void *target_, void *out_,
 
 	//printf("size: %d, %d, %d\n", size_window, size_target, size_out);
 
-	//printf("\n\n%ld\n\n", getMicrotime() - second);
-
 	int *d_window = NULL;
     err = cudaMalloc((void **)&d_window, size_window);
     if (err != cudaSuccess) {
 		fprintf(stderr, "Failed to allocate device d_window (error code %s)!\n", cudaGetErrorString(err));
 		exit(EXIT_FAILURE);
     }
+
+	printf("malloc 1\n%ld\n", getMicrotime() - second);
+
 	int *d_target = NULL;
     err = cudaMalloc((void **)&d_target, size_target);
     if (err != cudaSuccess) {
 		fprintf(stderr, "Failed to allocate device d_target (error code %s)!\n", cudaGetErrorString(err));
 		exit(EXIT_FAILURE);
     }
+
+	printf("malloc 2\n%ld\n", getMicrotime() - second);
+
 	int *d_out = NULL;
 	err = cudaMalloc((void **)&d_out, size_out);
     if (err != cudaSuccess) {
 		fprintf(stderr, "Failed to allocate device d_out (error code %s)!\n", cudaGetErrorString(err));
 		exit(EXIT_FAILURE);
 	}
+
+	printf("malloc 3\n%ld\n", getMicrotime() - second);
+
 	err = cudaMemcpy(d_window, window, size_window, cudaMemcpyHostToDevice);
     if (err != cudaSuccess) {
 		exit(EXIT_FAILURE);
@@ -83,6 +90,8 @@ extern "C" void ssd(const void *window_, const void *target_, void *out_,
     if (err != cudaSuccess) {
 		exit(EXIT_FAILURE);
     }
+
+	printf("memcpy\n%ld\n", getMicrotime() - second);
 
 	int threadsPerBlock = out_width;
     int blocksPerGrid = out_height;
@@ -115,6 +124,7 @@ extern "C" void ssd(const void *window_, const void *target_, void *out_,
     }
 
 	//printf("\nDone\n");
+	printf("done\n%ld-----------\n", getMicrotime() - second);
 }
 
 int main() {
