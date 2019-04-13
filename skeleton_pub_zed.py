@@ -350,7 +350,8 @@ class Predictor(threading.Thread):
                 window_height[idx] = window.shape[0]
                 target_width[idx] = target.shape[1]
                 target_height[idx] = target.shape[0]
-
+                points[idx, 0] = (xmin_f + xmax_f) * kx / 2
+                points[idx, 1] = (ymin_f + ymax_f) * ky / 2
                 idx = idx + 1
 
                 '''plt.subplot(311)
