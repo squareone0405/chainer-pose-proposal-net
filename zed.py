@@ -122,11 +122,6 @@ def main():
     else:
         mask = None
 
-    cap = cv2.VideoCapture(0)
-    if cap.isOpened() is False:
-        print('Error opening video stream or file')
-        exit(1)
-
     capture = Capture(model.insize)
     predictor = Predictor(model=model, cap=capture)
 
@@ -139,7 +134,7 @@ def main():
     main_event = threading.Event()
 
     try:
-        while not main_event.is_set() and cap.isOpened():
+        while not main_event.is_set():
             degree += 5
             degree = degree % 360
             try:
