@@ -23,14 +23,20 @@ extern "C" __global__ void ssd_cuda(const int *window, const int *target, int *o
     int y = tid / out_width - z * out_height;
 	int x = tid % out_width;
 	int sum = 0;
+	const int* window_ptr = NULL;
+	window_ptr = window + window_offset[z];
+	const int* target_ptr = NULL;
+	target_ptr = target + target_offset[z] + y * target_width[z] + x;
 	for(int i = 0; i < window_height[z]; ++i) {
 		for(int j = 0; j < window_width[z]; ++j) {
-			int diff = window[window_offset[z] + i * window_width[z] + j] - 
-						target[target_offset[z] + (i + y) * target_width[z] + j + x];
+			int diff = *window_ptr - *target_ptr;
 			sum += diff * diff;
+			window_ptr++;
+			target_ptr++;
 		}
+		target_ptr += target_width[z] - window_width[z];
 	}
-	out[z * out_width * out_height + y * out_width + x] = sum;
+	out[tid] = sum;
 }
 
 extern "C" void ssd(const void *window_, const void *target_, void *out_,
