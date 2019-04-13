@@ -215,8 +215,8 @@ class Predictor(threading.Thread):
 
         search_xmin = -20
         search_xmax = 0
-        search_ymin = -3
-        search_ymax = 3
+        search_ymin = -2
+        search_ymax = 2
 
         window_all = np.array([], dtype='int32')
         target_all = np.array([], dtype='int32')
@@ -276,10 +276,12 @@ class Predictor(threading.Thread):
                 plt.imshow(ssd[idx], cmap='gray')
                 plt.show()'''
 
+        print('cpu:' + str(time.time() - start_time))
         out = np.zeros_like(ssd, dtype='int32')
         compute_ssd(window_all, target_all, out, window_width, window_height,
                     target_width, target_height, ssd.shape[2], ssd.shape[1], len(human) - 1)
         ssd = out
+        print('cuda ssd:' + str(time.time() - start_time))
         heat_map = ssd.sum(axis=0)
         '''plt.imshow(heat_map, cmap='gray')
         plt.show()'''
@@ -302,8 +304,8 @@ class Predictor(threading.Thread):
         kx = kx_ori / scale_ratio
         ky = ky_ori / scale_ratio
 
-        search_xmin = -offset_x - max(4, int(offset_x / 6))
-        search_xmax = -offset_x + max(4, int(offset_x / 6))
+        search_xmin = -offset_x - max(4, int(offset_x / 8))
+        search_xmax = -offset_x + max(4, int(offset_x / 8))
         search_ymin = offset_y - 3
         search_ymax = offset_y + 3
 
@@ -358,11 +360,13 @@ class Predictor(threading.Thread):
                 plt.subplot(313)
                 plt.imshow(ssd[idx], cmap='gray')
                 plt.show()'''
+
+        print('cpu:' + str(time.time() - start_time))
         out = np.zeros_like(ssd, dtype='int32')
         compute_ssd(window_all, target_all, out, window_width, window_height,
                     target_width, target_height, ssd.shape[2], ssd.shape[1], len(human) - 1)
         ssd = out
-
+        print('cuda ssd:' + str(time.time() - start_time))
         heat_map = ssd.sum(axis=0)
         '''plt.imshow(heat_map, cmap='gray')
         plt.show()'''
@@ -375,8 +379,8 @@ class Predictor(threading.Thread):
         offset_x = -(search_xmax - search_xmin - center_x) * scale_ratio + search_xmax
         offset_y = (search_ymin + center_y) * scale_ratio + (search_ymin + search_ymax) / 2
 
-        candidate_range_x = max(3, int(math.fabs(offset_x / 8)))  # pm
-        candidate_range_y = max(1, int(math.fabs(offset_y / 8)))  # pm
+        candidate_range_x = max(3, int(math.fabs(offset_x / 16)))  # pm
+        candidate_range_y = max(1, int(math.fabs(offset_y / 16)))  # pm
 
         '''print(offset_x)
         print(offset_y)

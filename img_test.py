@@ -130,10 +130,12 @@ def get_points(human, image_left, image_right, kx, ky):
             plt.imshow(ssd[idx], cmap='gray')
             plt.show()'''
 
+    print('cpu:' + str(time.time() - start_time))
     out = np.zeros_like(ssd, dtype='int32')
     compute_ssd(window_all, target_all, out, window_width, window_height,
                 target_width, target_height, ssd.shape[2], ssd.shape[1], len(human) - 1)
     ssd = out
+    print('cuda ssd:' + str(time.time() - start_time))
 
     heat_map = ssd.sum(axis=0)
     '''plt.imshow(heat_map, cmap='gray')
@@ -226,10 +228,12 @@ def get_points(human, image_left, image_right, kx, ky):
             plt.imshow(ssd[idx], cmap='gray')
             plt.show()'''
 
+    print('cpu:' + str(time.time() - start_time))
     out = np.zeros_like(ssd, dtype='int32')
     compute_ssd(window_all, target_all, out, window_width, window_height,
                 target_width, target_height, ssd.shape[2], ssd.shape[1], len(human) - 1)
     ssd = out
+    print('cuda ssd:' + str(time.time() - start_time))
 
     heat_map = ssd.sum(axis=0)
     '''plt.imshow(heat_map, cmap='gray')
