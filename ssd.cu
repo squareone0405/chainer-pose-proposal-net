@@ -85,7 +85,7 @@ extern "C" void ssd(const void *window_, const void *target_, void *out_,
 		exit(EXIT_FAILURE);
     }
 
-	printf("malloc 1\n%ld\n", getMicrotime() - second);
+	//printf("malloc 1\n%ld\n", getMicrotime() - second);
 
 	int *d_target = NULL;
     err = cudaMalloc((void **)&d_target, size_target);
@@ -94,7 +94,7 @@ extern "C" void ssd(const void *window_, const void *target_, void *out_,
 		exit(EXIT_FAILURE);
     }
 
-	printf("malloc 2\n%ld\n", getMicrotime() - second);
+	//printf("malloc 2\n%ld\n", getMicrotime() - second);
 
 	int *d_out = NULL;
 	err = cudaMalloc((void **)&d_out, size_out);
@@ -103,7 +103,7 @@ extern "C" void ssd(const void *window_, const void *target_, void *out_,
 		exit(EXIT_FAILURE);
 	}
 
-	printf("malloc 3\n%ld\n", getMicrotime() - second);
+	//printf("malloc 3\n%ld\n", getMicrotime() - second);
 
 	int *d_window_width = NULL;
 	err = cudaMalloc((void **)&d_window_width, size_num);
@@ -142,7 +142,7 @@ extern "C" void ssd(const void *window_, const void *target_, void *out_,
 		exit(EXIT_FAILURE);
 	}
 
-	printf("malloc 4\n%ld\n", getMicrotime() - second);
+	//printf("malloc 4\n%ld\n", getMicrotime() - second);
 
 	err = cudaMemcpy(d_window, window, size_window, cudaMemcpyHostToDevice);
     if (err != cudaSuccess) {
@@ -177,11 +177,11 @@ extern "C" void ssd(const void *window_, const void *target_, void *out_,
 		exit(EXIT_FAILURE);
     }
 
-	printf("memcpy\n%ld\n", getMicrotime() - second);
+	//printf("memcpy\n%ld\n", getMicrotime() - second);
 
 	int threadsPerBlock = out_width * out_height;
     int blocksPerGrid = num;
-    printf("CUDA kernel launch with %d blocks of %d threads\n", blocksPerGrid, threadsPerBlock);
+    //printf("CUDA kernel launch with %d blocks of %d threads\n", blocksPerGrid, threadsPerBlock);
 	ssd_cuda<<<blocksPerGrid, threadsPerBlock>>>(d_window, d_target, d_out,
 												d_window_width, d_window_height,
 												d_target_width, d_target_height,

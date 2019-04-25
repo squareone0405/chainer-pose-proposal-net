@@ -39,10 +39,35 @@ from predict import COLOR_MAP
 from predict import estimate, draw_humans, create_model
 from utils import parse_size
 
+# VGA on zed 1
+cx = 336.162
+cy = 184.095
+fx = 350.003
+fy = 350.003
+# HD on zed 1
+'''cx = 642.325
+cy = 354.191
+fx = 700.006
+fy = 700.006'''
+# FHD on zed1
+'''cx = 967.65
+cy = 531.382
+fx = 1400.01
+fy = 1400.01'''
+
+BaseLine = 0.12
+plot = True
+
+
+def pix2cam(point):
+    x = point[2] * (point[0] - cx) / fx
+    y = point[2] * (point[1] - cy) / fy
+    z = point[2]
+    return [x, y, z]
+
 
 def get_points(human, image_left, image_right, kx, ky):
-    BaseLine = 0.12
-    FocalLength = 350
+    FocalLength = fx
 
     points = np.zeros((len(human) - 1, 3), dtype='float64')
     mask_size = 3
@@ -54,16 +79,17 @@ def get_points(human, image_left, image_right, kx, ky):
     kx_ori = kx
     ky_ori = ky
 
-    scale_ratio = 4
+    scale_ratio = 8 if image_left.shape[1] > 1000 else 4
     image_left = cv2.resize(image_left_ori, (int(image_left_ori.shape[1] / scale_ratio),
                                          int(image_left_ori.shape[0] / scale_ratio)), cv2.INTER_CUBIC)
     image_right = cv2.resize(image_right_ori, (int(image_right_ori.shape[1] / scale_ratio),
                                          int(image_right_ori.shape[0] / scale_ratio)), cv2.INTER_CUBIC)
 
-    '''plt.imshow(image_left, cmap='gray')
-    plt.show()
-    plt.imshow(image_right, cmap='gray')
-    plt.show()'''
+    if plot is True:
+        plt.imshow(image_left, cmap='gray')
+        plt.show()
+        plt.imshow(image_right, cmap='gray')
+        plt.show()
 
     kx = kx_ori / scale_ratio
     ky = ky_ori / scale_ratio
@@ -119,16 +145,7 @@ def get_points(human, image_left, image_right, kx, ky):
             window_height[idx] = window.shape[0]
             target_width[idx] = target.shape[1]
             target_height[idx] = target.shape[0]
-
             idx = idx + 1
-
-            '''plt.subplot(311)
-            plt.imshow(window, cmap='gray')
-            plt.subplot(312)
-            plt.imshow(target, cmap='gray')
-            plt.subplot(313)
-            plt.imshow(ssd[idx], cmap='gray')
-            plt.show()'''
 
     print('cpu:' + str(time.time() - start_time))
     out = np.zeros_like(ssd, dtype='int32')
@@ -138,8 +155,25 @@ def get_points(human, image_left, image_right, kx, ky):
     print('cuda ssd:' + str(time.time() - start_time))
 
     heat_map = ssd.sum(axis=0)
-    '''plt.imshow(heat_map, cmap='gray')
-    plt.show()'''
+
+    offset_window = 0
+    offset_target = 0
+    if plot is True:
+        for i in range(len(human) - 1):
+            plt.subplot(311)
+            plt.imshow(window_all[offset_window: offset_window + window_width[i] * window_height[i]]
+                       .reshape((window_height[i], window_width[i])), cmap='gray')
+            plt.subplot(312)
+            plt.imshow(target_all[offset_target: offset_target + target_width[i] * target_height[i]]
+                       .reshape((target_height[i], target_width[i])), cmap='gray')
+            plt.subplot(313)
+            plt.imshow(ssd[i], cmap='gray')
+            plt.show()
+            offset_window += window_width[i] * window_height[i]
+            offset_target += target_width[i] * target_height[i]
+        plt.imshow(heat_map, cmap='gray')
+        plt.show()
+
     mask = np.ones((mask_size, mask_size), dtype='int32')
     convolved = signal.convolve2d(heat_map, mask, 'valid')
     min_idx = np.argmin(convolved.reshape(-1))
@@ -158,6 +192,12 @@ def get_points(human, image_left, image_right, kx, ky):
                                              int(image_left_ori.shape[0] / scale_ratio)), cv2.INTER_CUBIC)
     image_right = cv2.resize(image_right_ori, (int(image_right_ori.shape[1] / scale_ratio),
                                                int(image_right_ori.shape[0] / scale_ratio)), cv2.INTER_CUBIC)
+
+    if plot is True:
+        plt.imshow(image_left, cmap='gray')
+        plt.show()
+        plt.imshow(image_right, cmap='gray')
+        plt.show()
 
     kx = kx_ori / scale_ratio
     ky = ky_ori / scale_ratio
@@ -220,14 +260,6 @@ def get_points(human, image_left, image_right, kx, ky):
             points[idx, 1] = (ymin_f + ymax_f) * ky / 2
             idx = idx + 1
 
-            '''plt.subplot(311)
-            plt.imshow(window, cmap='gray')
-            plt.subplot(312)
-            plt.imshow(target, cmap='gray')
-            plt.subplot(313)
-            plt.imshow(ssd[idx], cmap='gray')
-            plt.show()'''
-
     print('cpu:' + str(time.time() - start_time))
     out = np.zeros_like(ssd, dtype='int32')
     compute_ssd(window_all, target_all, out, window_width, window_height,
@@ -236,8 +268,24 @@ def get_points(human, image_left, image_right, kx, ky):
     print('cuda ssd:' + str(time.time() - start_time))
 
     heat_map = ssd.sum(axis=0)
-    '''plt.imshow(heat_map, cmap='gray')
-    plt.show()'''
+
+    offset_window = 0
+    offset_target = 0
+    if plot is True:
+        for i in range(len(human) - 1):
+            plt.subplot(311)
+            plt.imshow(window_all[offset_window: offset_window + window_width[i] * window_height[i]]
+                       .reshape((window_height[i], window_width[i])), cmap='gray')
+            plt.subplot(312)
+            plt.imshow(target_all[offset_target: offset_target + target_width[i] * target_height[i]]
+                       .reshape((target_height[i], target_width[i])), cmap='gray')
+            plt.subplot(313)
+            plt.imshow(ssd[i], cmap='gray')
+            plt.show()
+            offset_window += window_width[i] * window_height[i]
+            offset_target += target_width[i] * target_height[i]
+        plt.imshow(heat_map, cmap='gray')
+        plt.show()
 
     print('search range:%d, %d' % (search_ymax - search_ymin + 1, search_xmax - search_xmin + 1))
     print('round 2:+++++++++++++++++++++++++++' + str(time.time() - start_time))
@@ -267,8 +315,9 @@ def get_points(human, image_left, image_right, kx, ky):
         candidate_xmin = max(center_x - candidate_range_x, 0)
         candidate_xmax = min(center_x + candidate_range_x + 1, ssd.shape[2])
         candidate_rigion = ssd[i, candidate_ymin: candidate_ymax, candidate_xmin: candidate_xmax]
-        '''plt.imshow(candidate_rigion, cmap='gray')
-        plt.show()'''
+        if plot is True:
+            plt.imshow(candidate_rigion, cmap='gray')
+            plt.show()
         best_candidate_x = np.argmin(candidate_rigion.reshape(-1)) % (candidate_xmax - candidate_xmin)
         best_candidate_y = np.argmin(candidate_rigion.reshape(-1)) / (candidate_xmax - candidate_xmin)
         neighbor_xmin = max(best_candidate_x - 1, 0)
@@ -293,6 +342,8 @@ def get_points(human, image_left, image_right, kx, ky):
         # print(depth)
         points[i, 2] = depth
     print(time.time() - start_time)
+    for i in range(len(points)):
+        points[i] = pix2cam(points[i])
     return points
 
 
@@ -302,14 +353,15 @@ def main():
 
     model = create_model(config)
 
-    image_left_ori = cv2.imread('lwb_l.png')
-    image_right_ori = cv2.imread('lwb_r.png')
+    image_left_ori = cv2.imread('lwb_7_l.png')
+    image_right_ori = cv2.imread('lwb_7_r.png')
     shape_ori = image_left_ori.shape
     image_left = cv2.cvtColor(image_left_ori, cv2.COLOR_BGR2RGB)
     image_left = cv2.resize(image_left, model.insize)
     with chainer.using_config('autotune', True):
         humans = estimate(model,
                           image_left.transpose(2, 0, 1).astype(np.float32))
+        print(humans)
     pilImg = Image.fromarray(image_left)
     pilImg = draw_humans(
         model.keypoint_names,

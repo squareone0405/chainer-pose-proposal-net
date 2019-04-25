@@ -102,7 +102,7 @@ venv.bak/
 *.csv
 .idea/
 mpii/
-
+result/
 
 # mkdocs documentation
 /site

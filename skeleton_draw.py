@@ -44,7 +44,7 @@ def skeleton_callback(skeleton):
                 print('skipppppppppppppppppppp')
                 continue
             for skeleton_idx in range(skeleton.skeleton_num[human_idx]):
-                index = human_idx * 14 + skeleton_idx
+                index = np.sum(np.array(skeleton.skeleton_num)[:human_idx]) + skeleton_idx
                 marker = Marker()
                 marker.header = std_msgs.msg.Header()
                 marker.header.frame_id = 'map'
@@ -84,20 +84,39 @@ def skeleton_callback(skeleton):
             print('+++++++++++++++++++++++++++V')
             print(V)
             xyz_order = np.argmax(V, axis=1)
+            x_idx = np.where(xyz_order == 0)
+            x_vec = V[x_idx]
             y_idx = np.where(xyz_order == 1)
             y_vec = V[y_idx]
+            z_idx = np.where(xyz_order == 2)
+            z_vec = V[z_idx]
+            print('vector before')
+            print(x_vec)
             print(y_vec)
+            print(z_vec)
             skeleton_before = sum(skeleton.skeleton_num[:human_idx])
             types_curr_human = skeleton.types[skeleton_before: skeleton_before + skeleton.skeleton_num[human_idx]]
             # TODO may be wrong if skeleton is incomplete
             if 9 in types_curr_human and 10 in types_curr_human: # l_hip and r_hip
                 point_l_hip = skeleton.points[skeleton_before + types_curr_human.index(9)]
                 point_r_hip = skeleton.points[skeleton_before + types_curr_human.index(10)]
-                vec = np.array(point_l_hip - point_r_hip)
-                print(np.dot(vec, y_vec))
-                print('****************************************************')
+                vec = np.array([point_l_hip.x - point_r_hip.x,
+                                point_l_hip.y - point_r_hip.y, point_l_hip.z - point_r_hip.z])
+                print(y_vec.reshape(3, ).shape)
+                print(vec.shape)
+                print(np.dot(vec, y_vec.reshape(3, )))
+                if np.dot(vec, y_vec.reshape(3, )) < 0:
+                    y_vec = -y_vec
+                if x_vec[0, 0] * y_vec[0, 1] < 0:
+                    x_vec = -x_vec
+                if z_vec[0, 2] * y_vec[0, 1] < 0:
+                    z_vec = -z_vec
                 print(point_l_hip)
                 print(point_r_hip)
+                print('vector----------------------------------------------------------')
+                print(x_vec)
+                print(y_vec)
+                print(z_vec)
 
             for arrow_idx in range(3):
                 marker = Marker()
