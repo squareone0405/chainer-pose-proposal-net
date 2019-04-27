@@ -1,29 +1,23 @@
 import numpy as np
-from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import axes3d
 import matplotlib.colors as colors
-import matplotlib.animation as animation
 import math
 
-'''COLOR_LIST = np.array([
-    (255, 0, 0, 255),
-    (255, 85, 0, 255),
-    (255, 170, 0, 255),
-    (255, 255, 0, 255),
-    (170, 255, 0, 255),
-    (85, 255, 0, 255),
-    (0, 127, 0, 255),
-    (0, 255, 85, 255),
-    (0, 170, 170, 255),
-    (0, 255, 255, 255),
-    (0, 170, 255, 255),
-    (0, 85, 255, 255),
-    (0, 0, 255, 255),
-    (85, 0, 255, 255)
-]) / 255.0'''
+import ctypes
+from ctypes import cdll
+
+lib = cdll.LoadLibrary('../skeleton_optimizer/cmake-build-debug/libskeleton.so')
+ceres_refine = lib.refine_skeleton
+
+
+def refine_skeleton(init_points, expect_points, bone_length):
+    ceres_refine(ctypes.c_void_p(init_points.ctypes.data),
+                 ctypes.c_void_p(expect_points.ctypes.data),
+                 ctypes.c_void_p(bone_length.ctypes.data))
+
 
 KEYPOINT_NAMES = [
-    'instance',
     'head_top',
     'upper_neck',
     'l_shoulder',
@@ -75,43 +69,32 @@ COLOR_LIST = np.array([
     [85, 0, 255, 255]
 ]) / 255.0
 
-class skeleton_animation:
-    def __init__(self, humans):
-        self.humans = humans
-        self.fig = plt.figure()
-        self.ax = self.fig.add_subplot(111, projection='3d')
-        self.graph, = self.ax.plot([], [], [], 'x')
-        self.ax.set_xlim(-1.5, 1.5)
-        self.ax.set_ylim(1, 3)
-        self.ax.set_zlim(-1.5, 1.5)
-        self.ax.set_xlabel('X')
-        self.ax.set_ylabel('Y')
-        self.ax.set_zlabel('Z')
-        '''self.graph = self.ax.plot(self.humans[0]['points'][:, 0],
-                                      self.humans[0]['points'][:, 1],
-                                      self.humans[0]['points'][:, 2],
-                                      c=COLOR_LIST[humans[0]['types'] - 1])'''
-        self.ani = animation.FuncAnimation(fig=self.fig, func=self.animate, frames=len(self.humans),
-                                           init_func=self.init, interval=50, blit=False)
 
-    def init(self):
-        idx = 0
-        self.graph.set_data(self.humans[idx]['points'][:, 0],
-                            self.humans[idx]['points'][:, 2])
-        self.graph.set_3d_properties(-self.humans[idx]['points'][:, 1])
-
-    def animate(self, idx):
-        self.graph.set_data(self.humans[idx]['points'][:, 0],
-                            self.humans[idx]['points'][:, 2])
-        self.graph.set_3d_properties(-self.humans[idx]['points'][:, 1])
-
-    def save(self):
-        self.ani.save('skeleton.mp4', writer='ffmpeg', fps=5)
+def load_data(path):
+    skeleton_data = np.loadtxt(path, delimiter=',')
+    zero_or_types = skeleton_data[:, 0].astype(np.int8)
+    human_num = np.where(zero_or_types == 0)[0].shape[0]
+    skeleton_points = np.zeros((human_num, 14, 3))
+    time_stamps = np.zeros(human_num)
+    human_idx = 0
+    data_idx = 0
+    while data_idx < len(zero_or_types):
+        skeleton_num = skeleton_data[data_idx, 2].astype(np.int8)
+        time_stamps[human_idx] = skeleton_data[data_idx, 3]
+        data_idx += 1
+        types = skeleton_data[data_idx: data_idx + skeleton_num, 0].astype(np.int8)
+        points = skeleton_data[data_idx: data_idx + skeleton_num, 1:]
+        for i in range(types.shape[0]):
+            skeleton_points[human_idx, types[i] - 1, :] = points[i]
+        human_idx += 1
+        data_idx += skeleton_num
+    return skeleton_points, time_stamps
 
 
 def get_distance(point1, point2):
     diff = np.array(point1) - np.array(point2)
     return math.sqrt(np.sum(np.multiply(diff, diff)))
+
 
 def exponential_smoothing(data, alpha): # TODO only smooth z when predict 3d point online
     data_len = data.shape[0]
@@ -121,7 +104,19 @@ def exponential_smoothing(data, alpha): # TODO only smooth z when predict 3d poi
         data_exp[i, :] = data_exp[i - 1, :] * (1 - alpha) + data[i] * alpha
     return data_exp
 
-def plot_skeleton(points, types, save, filename):
+
+def get_bone_length(points):
+    bone_length = np.zeros(13)
+    for edge_idx in range(len(EDGES)):
+        s, t = EDGES[edge_idx]
+        types = np.where(points[:, 0] != 0)[0]
+        if s in types and t in types:
+            bone_length[edge_idx] = \
+                get_distance(points[s, :], points[t, :])
+    return bone_length
+
+
+def plot_skeleton(points, save=False, filename=None):
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
     ax.set_xlim(-1.5, 1.5)
@@ -130,75 +125,101 @@ def plot_skeleton(points, types, save, filename):
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
-    ax.scatter(points[:, 2], -points[:, 1], points[:, 0], 'x', color=COLOR_LIST[types - 1])
+    types = np.where(points[:, 0] != 0)[0]
+    valid_points = points[types]
+    ax.scatter(valid_points[:, 2], -valid_points[:, 1], valid_points[:, 0], 'x', c=COLOR_LIST[types])
     for edge_idx in range(len(EDGES)):
         s, t = EDGES[edge_idx]
         if s in types and t in types:
-            s_idx = np.where(types == s)
-            t_idx = np.where(types == t)
-            ax.plot([points[s_idx, 0][0, 0], points[t_idx, 0][0, 0]],
-                    [points[s_idx, 2][0, 0], points[t_idx, 2][0, 0]],
-                    [-points[s_idx, 1][0, 0], -points[t_idx, 1][0, 0]],
-                    color=COLOR_LIST[types[t_idx] - 1][0])
-    if save is True:
+            ax.plot([points[s, 0], points[t, 0]],
+                    [points[s, 2], points[t, 2]],
+                    [-points[s, 1], -points[t, 1]],
+                    color=COLOR_LIST[s])
+    if save:
         plt.savefig(filename)
-        plt.close(fig)
     else:
         plt.show()
-        plt.close(fig)
+    plt.close()
+
+
+def plot_skeletons(points1, points2 ,save=False, filename=None):
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection='3d')
+    ax.set_xlim(-1.5, 1.5)
+    ax.set_ylim(1, 3)
+    ax.set_zlim(-1.5, 1.5)
+    ax.set_xlabel('X')
+    ax.set_ylabel('Y')
+    ax.set_zlabel('Z')
+    types = np.where(points1[:, 0] != 0)[0]
+    valid_points = points1[types]
+    ax.scatter(valid_points[:, 2], -valid_points[:, 1], valid_points[:, 0], 'x', c=COLOR_LIST[types])
+    for edge_idx in range(len(EDGES)):
+        s, t = EDGES[edge_idx]
+        if s in types and t in types:
+            ax.plot([points1[s, 0], points1[t, 0]],
+                    [points1[s, 2], points1[t, 2]],
+                    [-points1[s, 1], -points1[t, 1]],
+                    color=COLOR_LIST[s])
+    types = np.where(points2[:, 0] != 0)[0]
+    valid_points = points2[types]
+    ax.scatter(valid_points[:, 2], -valid_points[:, 1], valid_points[:, 0], 'x', c=COLOR_LIST[types])
+    for edge_idx in range(len(EDGES)):
+        s, t = EDGES[edge_idx]
+        if s in types and t in types:
+            ax.plot([points2[s, 0], points2[t, 0]],
+                    [points2[s, 2], points2[t, 2]],
+                    [-points2[s, 1], -points2[t, 1]],
+                    color='black')
+    if save:
+        plt.savefig(filename)
+    else:
+        plt.show()
+    plt.close()
 
 
 if __name__ == '__main__':
-    skeleton_data = np.loadtxt('skeleton.csv', delimiter=',')
-    zero_or_types = skeleton_data[:, 0].astype(np.int8)
-    humans = []
-    idx = 0
-    while idx < len(zero_or_types):
-        skeleton_num = skeleton_data[idx, 2].astype(np.int8)
-        time_stamp = skeleton_data[idx, 3]
-        idx += 1
-        types = skeleton_data[idx: idx + skeleton_num, 0].astype(np.int8)
-        points = skeleton_data[idx: idx + skeleton_num, 1:]
-        idx += skeleton_num
-        humans.append({'num': skeleton_num, 'time_stamp': time_stamp, 'types': types, 'points': points})
-    # ani = skeleton_animation(humans)
-    # plt.show()
-
-    points_list = np.array([human['points'] for human in humans])
-    types_list = np.array([human['types'] for human in humans])
-
-    points_flatten = np.concatenate(points_list).ravel().reshape((-1, 3))
-    types_flatten = np.concatenate(types_list).ravel()
-
-    bone_length = np.zeros((len(humans), len(EDGES)))
-    for human_idx in range(len(humans)):
+    skeleton_points, time_stamps = load_data('skeleton3.csv') # TODO add confidence term to handle skeleton incomplete
+    bone_length = np.zeros((skeleton_points.shape[0], len(EDGES)))
+    for human_idx in range(skeleton_points.shape[0]):
         for edge_idx in range(len(EDGES)):
             s, t = EDGES[edge_idx]
-            if s in types_list[human_idx] and t in types_list[human_idx]:
-                s_idx = np.where(types_list[human_idx] == s)
-                t_idx = np.where(types_list[human_idx] == t)
+            types = np.where(skeleton_points[human_idx, :, 0] != 0)[0]
+            if s in types and t in types:
                 bone_length[human_idx][edge_idx] = \
-                    get_distance(points_list[human_idx][s_idx], points_list[human_idx][t_idx])
+                    get_distance(skeleton_points[human_idx, s, :], skeleton_points[human_idx, t, :])
 
-    print(bone_length[:, 0])
+    bone_length_mean = np.sum(bone_length, axis=0) / np.count_nonzero(bone_length, axis=0)
+    print(bone_length_mean)
 
-    '''head_depth = np.array([])
-        for human_idx in range(len(humans)):
-            if type in types_list[human_idx]:
-                head_depth = np.hstack((head_depth, points_list[human_idx][np.where(types_list[human_idx] == type)[0], 2]))'''
+    curr_points = skeleton_points[0]
+    for i in range(skeleton_points.shape[0]):
+        refine_skeleton(curr_points, skeleton_points[i], bone_length_mean)
+        non_zero_idx = np.where(skeleton_points[i, :, 0] != 0)[0]
+        # plot_skeletons(curr_points, skeleton_points[i], True, './result/%04d.png' % i)
+        if i in np.arange(300, 310):
+            plot_skeletons(curr_points, skeleton_points[i])
+            print(curr_points)
+            print(skeleton_points[i])
+            print(get_bone_length(curr_points))
+            '''print(non_zero_idx)
+            print(curr_points[non_zero_idx] - skeleton_points[i, non_zero_idx, :])'''
 
-    type = 1
-    head_point = points_flatten[types_flatten == type]
+
+    '''type = 1
+    head_point = skeleton_points[:, type, :]
+    head_point = head_point[head_point[:, 0] != 0]
     head_point_smoothed = exponential_smoothing(head_point, 0.1)
     type = 2
-    neck_point = points_flatten[types_flatten == type]
+    neck_point = skeleton_points[:, type, :]
+    neck_point = neck_point[neck_point[:, 0] != 0]
     neck_point_smoothed = exponential_smoothing(neck_point, 0.1)
     plt.figure()
     plt.plot(range(head_point.shape[0]), head_point[:, 2])
     plt.plot(range(head_point.shape[0]), head_point_smoothed[:, 2])
     plt.plot(range(neck_point.shape[0]), neck_point[:, 2])
     plt.plot(range(neck_point.shape[0]), neck_point_smoothed[:, 2])
-    plt.show()
+    plt.show()'''
 
     '''plt.figure()
     for i in range(len(EDGES)):
@@ -206,7 +227,6 @@ if __name__ == '__main__':
     plt.legend(loc='best')
     plt.show()'''
 
-    '''for i in range(points_list.shape[0]):
-        plot_skeleton(points_list[i], types_list[i], True, './result/%04d.png' % i)'''
-
+    '''for i in range(skeleton_points.shape[0]):
+        plot_skeleton(skeleton_points[i], True, './result/%04d.png' % i)'''
 

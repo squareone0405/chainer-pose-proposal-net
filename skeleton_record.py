@@ -123,7 +123,7 @@ class Predictor(threading.Thread):
         self.queue = Queue.Queue(QUEUE_SIZE)
         self.name = 'Predictor'
 
-        self.text_file = open("skeleton2.csv", "w")
+        self.text_file = open("skeleton.csv", "w")
 
     def run(self):
         while not self.stop_event.is_set():
@@ -182,11 +182,14 @@ class Predictor(threading.Thread):
         return 0
 
     def get_points(self, human, image_left, image_right):
+        plot = False
+
         BaseLine = 0.12
         FocalLength = self.cap.calibration_params.left_cam.fx
 
         types = []
         points = np.zeros((len(human) - 1, 3), dtype='float64')
+
         mask_size = 3
         interp_range = (0.1, 1)
 
@@ -197,16 +200,16 @@ class Predictor(threading.Thread):
         ky_ori = self.cap.ky
 
         scale_ratio = 8 if image_left.shape[1] > 1000 else 4
-
         image_left = cv2.resize(image_left_ori, (int(image_left_ori.shape[1] / scale_ratio),
                                                  int(image_left_ori.shape[0] / scale_ratio)), cv2.INTER_CUBIC)
         image_right = cv2.resize(image_right_ori, (int(image_right_ori.shape[1] / scale_ratio),
                                                    int(image_right_ori.shape[0] / scale_ratio)), cv2.INTER_CUBIC)
 
-        '''plt.imshow(image_left, cmap='gray')
-        plt.show()
-        plt.imshow(image_right, cmap='gray')
-        plt.show()'''
+        if plot is True:
+            plt.imshow(image_left, cmap='gray')
+            plt.show()
+            plt.imshow(image_right, cmap='gray')
+            plt.show()
 
         kx = kx_ori / scale_ratio
         ky = ky_ori / scale_ratio
@@ -227,7 +230,6 @@ class Predictor(threading.Thread):
         idx = 0
         for key in sorted(human):
             if key != 0:
-                types.append(key)
                 ymin_f, xmin_f, ymax_f, xmax_f = human[key]  # TODO change the range of head and hip
 
                 if key == 1:  # head top
@@ -265,20 +267,44 @@ class Predictor(threading.Thread):
                 target_height[idx] = target.shape[0]
                 idx = idx + 1
 
+        print('cpu:' + str(time.time() - start_time))
         out = np.zeros_like(ssd, dtype='int32')
         compute_ssd(window_all, target_all, out, window_width, window_height,
                     target_width, target_height, ssd.shape[2], ssd.shape[1], len(human) - 1)
         ssd = out
+        print('cuda ssd:' + str(time.time() - start_time))
+
         heat_map = ssd.sum(axis=0)
-        '''plt.imshow(heat_map, cmap='gray')
-        plt.show()'''
+
+        offset_window = 0
+        offset_target = 0
+        if plot is True:
+            for i in range(len(human) - 1):
+                plt.subplot(311)
+                plt.imshow(window_all[offset_window: offset_window + window_width[i] * window_height[i]]
+                           .reshape((window_height[i], window_width[i])), cmap='gray')
+                plt.subplot(312)
+                plt.imshow(target_all[offset_target: offset_target + target_width[i] * target_height[i]]
+                           .reshape((target_height[i], target_width[i])), cmap='gray')
+                plt.subplot(313)
+                plt.imshow(ssd[i], cmap='gray')
+                plt.show()
+                offset_window += window_width[i] * window_height[i]
+                offset_target += target_width[i] * target_height[i]
+            plt.imshow(heat_map, cmap='gray')
+            plt.show()
+
         mask = np.ones((mask_size, mask_size), dtype='int32')
         convolved = signal.convolve2d(heat_map, mask, 'valid')
         min_idx = np.argmin(convolved.reshape(-1))
         center_x, center_y = min_idx % convolved.shape[1] + 1, min_idx / convolved.shape[1] + 1
+        # print(center_x, center_y)
 
         offset_x = (search_xmax - search_xmin - center_x) * scale_ratio
         offset_y = (search_ymin + center_y) * scale_ratio
+
+        print('search range:%d, %d' % (search_ymax - search_ymin + 1, search_xmax - search_xmin + 1))
+        print('round 1:***************************' + str(time.time() - start_time))
 
         '''round 2'''
         scale_ratio = 1
@@ -286,6 +312,12 @@ class Predictor(threading.Thread):
                                                  int(image_left_ori.shape[0] / scale_ratio)), cv2.INTER_CUBIC)
         image_right = cv2.resize(image_right_ori, (int(image_right_ori.shape[1] / scale_ratio),
                                                    int(image_right_ori.shape[0] / scale_ratio)), cv2.INTER_CUBIC)
+
+        if plot is True:
+            plt.imshow(image_left, cmap='gray')
+            plt.show()
+            plt.imshow(image_right, cmap='gray')
+            plt.show()
 
         kx = kx_ori / scale_ratio
         ky = ky_ori / scale_ratio
@@ -297,12 +329,21 @@ class Predictor(threading.Thread):
 
         # print(search_xmin, search_xmax, search_ymin, search_ymax)
 
+        window_all = np.array([], dtype='int32')
+        target_all = np.array([], dtype='int32')
+        window_width = np.zeros((len(human) - 1), dtype='int32')
+        window_height = np.zeros((len(human) - 1), dtype='int32')
+        target_width = np.zeros((len(human) - 1), dtype='int32')
+        target_height = np.zeros((len(human) - 1), dtype='int32')
+
         ssd = np.zeros((len(human) - 1, search_ymax - search_ymin + 1, search_xmax - search_xmin + 1), dtype='int32')
         idx = 0
         for key in sorted(human):
             if key != 0:
+                types.append(key)
                 ymin_f, xmin_f, ymax_f, xmax_f = human[key]  # TODO change the range of head and hip
-
+                points[idx, 0] = (xmin_f + xmax_f) * kx / 2
+                points[idx, 1] = (ymin_f + ymax_f) * ky / 2
                 if key == 1:  # head top
                     ymin_f = ymin_f * 0.7 + ymax_f * 0.3
                 if key in [9, 10]:  # left hip or right hip
@@ -336,17 +377,39 @@ class Predictor(threading.Thread):
                 window_height[idx] = window.shape[0]
                 target_width[idx] = target.shape[1]
                 target_height[idx] = target.shape[0]
-                points[idx, 0] = (xmin_f + xmax_f) * kx / 2
-                points[idx, 1] = (ymin_f + ymax_f) * ky / 2
+
                 idx = idx + 1
 
+        print('cpu:' + str(time.time() - start_time))
         out = np.zeros_like(ssd, dtype='int32')
         compute_ssd(window_all, target_all, out, window_width, window_height,
                     target_width, target_height, ssd.shape[2], ssd.shape[1], len(human) - 1)
         ssd = out
+        print('cuda ssd:' + str(time.time() - start_time))
+
         heat_map = ssd.sum(axis=0)
-        '''plt.imshow(heat_map, cmap='gray')
-        plt.show()'''
+
+        offset_window = 0
+        offset_target = 0
+        if plot is True:
+            for i in range(len(human) - 1):
+                plt.subplot(311)
+                plt.imshow(window_all[offset_window: offset_window + window_width[i] * window_height[i]]
+                           .reshape((window_height[i], window_width[i])), cmap='gray')
+                plt.subplot(312)
+                plt.imshow(target_all[offset_target: offset_target + target_width[i] * target_height[i]]
+                           .reshape((target_height[i], target_width[i])), cmap='gray')
+                plt.subplot(313)
+                plt.imshow(ssd[i], cmap='gray')
+                plt.show()
+                offset_window += window_width[i] * window_height[i]
+                offset_target += target_width[i] * target_height[i]
+            plt.imshow(heat_map, cmap='gray')
+            plt.show()
+
+        print('search range:%d, %d' % (search_ymax - search_ymin + 1, search_xmax - search_xmin + 1))
+        print('round 2:+++++++++++++++++++++++++++' + str(time.time() - start_time))
+
         mask = np.ones((mask_size, mask_size), dtype='int32')
         convolved = signal.convolve2d(heat_map, mask, 'valid')
         min_idx = np.argmin(convolved.reshape(-1))
@@ -359,12 +422,22 @@ class Predictor(threading.Thread):
         candidate_range_x = max(3, int(math.fabs(offset_x / 16)))  # pm
         candidate_range_y = max(1, int(math.fabs(offset_y / 16)))  # pm
 
+        '''print(offset_x)
+        print(offset_y)
+        print(candidate_range_x)
+        print(candidate_range_y)'''
+        print('offset: %d, %d' % (offset_y, offset_x))
+        print('candidate_range:%d, %d' % (2 * candidate_range_y + 1, 2 * candidate_range_x + 1))
+
         for i in range(ssd.shape[0]):  # TODO weighted interpolation
             candidate_ymin = max(center_y - candidate_range_y, 0)
             candidate_ymax = min(center_y + candidate_range_y + 1, ssd.shape[1])
             candidate_xmin = max(center_x - candidate_range_x, 0)
             candidate_xmax = min(center_x + candidate_range_x + 1, ssd.shape[2])
             candidate_rigion = ssd[i, candidate_ymin: candidate_ymax, candidate_xmin: candidate_xmax]
+            if plot is True:
+                plt.imshow(candidate_rigion, cmap='gray')
+                plt.show()
             best_candidate_x = np.argmin(candidate_rigion.reshape(-1)) % (candidate_xmax - candidate_xmin)
             best_candidate_y = np.argmin(candidate_rigion.reshape(-1)) / (candidate_xmax - candidate_xmin)
             neighbor_xmin = max(best_candidate_x - 1, 0)
@@ -382,13 +455,17 @@ class Predictor(threading.Thread):
             disparity_right = disparity_left - weight.shape[1] + 1
             disparity_mat = np.repeat(np.linspace(disparity_left, disparity_right, num=weight.shape[1])[:, np.newaxis],
                                       weight.shape[0], axis=1).transpose()
+            # print(disparity_mat)
             disparity = np.sum(np.multiply(weight, disparity_mat).reshape(-1))
+            # print(disparity)
             depth = (FocalLength * BaseLine) / (disparity + 0.0000001)
+            # print(depth)
             points[i, 2] = depth
-        # print(time.time() - start_time)
+        print(time.time() - start_time)
         for i in range(len(points)):
             points[i] = self.cap.pix2cam(points[i])
-        # print(points)
+        print(points)
+        print(types)
         return points.tolist(), types
 
 
