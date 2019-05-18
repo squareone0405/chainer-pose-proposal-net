@@ -94,11 +94,13 @@ def get_humans_by_feature(model, feature_map, detection_thresh=0.15):
     start = time.time()
 
     humans = []
+    confidences = []
     e = e.transpose(0, 3, 4, 1, 2)
     ei = 0  # index of edges which contains ROOT_NODE as begin
     # alchemy_on_humans
     for hxw in zip(candidate[0][selected], candidate[1][selected]):
         human = {ROOT_NODE: bbox[(ROOT_NODE, hxw[0], hxw[1])]}  # initial
+        confidence = {ROOT_NODE: score[len(humans)]}  # initial
         for graph in DIRECTED_GRAPHS:
             eis, ts = graph
             i_h, i_w = hxw
@@ -112,12 +114,14 @@ def get_humans_by_feature(model, feature_map, detection_thresh=0.15):
                 if delta[t, j_h, j_w] < detection_thresh:
                     break
                 human[t] = bbox[(t, j_h, j_w)]
+                confidence[t] = delta[t, j_h, j_w]
                 i_h, i_w = j_h, j_w
 
         humans.append(human)
+        confidences.append(confidence)
     logger.info('alchemy time {:.5f}'.format(time.time() - start))
     logger.info('num humans = {}'.format(len(humans)))
-    return humans
+    return humans, confidences
 
 
 def draw_humans(keypoint_names, edges, pil_image, humans, mask=None):

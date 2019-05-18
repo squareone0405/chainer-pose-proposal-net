@@ -11,10 +11,13 @@ lib = cdll.LoadLibrary('../skeleton_optimizer/cmake-build-debug/libskeleton.so')
 ceres_refine = lib.refine_skeleton
 
 
-def refine_skeleton(init_points, expect_points, bone_length):
+def refine_skeleton(init_points, expect_points, bone_length, confidence, initial_cost, final_cost):
     ceres_refine(ctypes.c_void_p(init_points.ctypes.data),
                  ctypes.c_void_p(expect_points.ctypes.data),
-                 ctypes.c_void_p(bone_length.ctypes.data))
+                 ctypes.c_void_p(bone_length.ctypes.data),
+                 ctypes.c_void_p(confidence.ctypes.data),
+                 ctypes.c_void_p(initial_cost.ctypes.data),
+                 ctypes.c_void_p(final_cost.ctypes.data))
 
 
 KEYPOINT_NAMES = [
@@ -109,7 +112,7 @@ def get_bone_length(points):
     bone_length = np.zeros(13)
     for edge_idx in range(len(EDGES)):
         s, t = EDGES[edge_idx]
-        types = np.where(points[:, 0] != 0)[0]
+        types = np.where(points[:, 2] != 0)[0]
         if s in types and t in types:
             bone_length[edge_idx] = \
                 get_distance(points[s, :], points[t, :])
@@ -125,7 +128,7 @@ def plot_skeleton(points, save=False, filename=None):
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
-    types = np.where(points[:, 0] != 0)[0]
+    types = np.where(points[:, 2] != 0)[0]
     valid_points = points[types]
     ax.scatter(valid_points[:, 2], -valid_points[:, 1], valid_points[:, 0], 'x', c=COLOR_LIST[types])
     for edge_idx in range(len(EDGES)):
@@ -145,31 +148,44 @@ def plot_skeleton(points, save=False, filename=None):
 def plot_skeletons(points1, points2 ,save=False, filename=None):
     fig = plt.figure()
     ax = fig.add_subplot(111, projection='3d')
-    ax.set_xlim(-1.5, 1.5)
+    '''ax.set_xlim(-1.5, 1.5)
     ax.set_ylim(1, 3)
-    ax.set_zlim(-1.5, 1.5)
+    ax.set_zlim(-1.5, 1.5)'''
+    ax.set_xlim(1, 3)
+    ax.set_ylim(-1, 1)
+    ax.set_zlim(-0.5, 2.5)
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
-    types = np.where(points1[:, 0] != 0)[0]
+    types = np.where(points1[:, 2] != 0)[0]
     valid_points = points1[types]
-    ax.scatter(valid_points[:, 2], -valid_points[:, 1], valid_points[:, 0], 'x', c=COLOR_LIST[types])
+    # ax.scatter(valid_points[:, 2], -valid_points[:, 1], valid_points[:, 0], 'x', c=COLOR_LIST[types])
+    ax.scatter(valid_points[:, 1], valid_points[:, 2], valid_points[:, 0], 'x', c=COLOR_LIST[types])
     for edge_idx in range(len(EDGES)):
         s, t = EDGES[edge_idx]
         if s in types and t in types:
-            ax.plot([points1[s, 0], points1[t, 0]],
+            '''ax.plot([points1[s, 0], points1[t, 0]],
                     [points1[s, 2], points1[t, 2]],
                     [-points1[s, 1], -points1[t, 1]],
+                    color=COLOR_LIST[s]'''
+            ax.plot([points1[s, 0], points1[t, 0]],
+                    [points1[s, 1], points1[t, 1]],
+                    [points1[s, 2], points1[t, 2]],
                     color=COLOR_LIST[s])
-    types = np.where(points2[:, 0] != 0)[0]
+    types = np.where(points2[:, 2] != 0)[0]
     valid_points = points2[types]
-    ax.scatter(valid_points[:, 2], -valid_points[:, 1], valid_points[:, 0], 'x', c=COLOR_LIST[types])
+    # ax.scatter(valid_points[:, 2], -valid_points[:, 1], valid_points[:, 0], 'x', c=COLOR_LIST[types])
+    ax.scatter(valid_points[:, 1], valid_points[:, 2], valid_points[:, 0], 'x', c=COLOR_LIST[types])
     for edge_idx in range(len(EDGES)):
         s, t = EDGES[edge_idx]
         if s in types and t in types:
-            ax.plot([points2[s, 0], points2[t, 0]],
+            '''ax.plot([points2[s, 0], points2[t, 0]],
                     [points2[s, 2], points2[t, 2]],
                     [-points2[s, 1], -points2[t, 1]],
+                    color='black')'''
+            ax.plot([points2[s, 0], points2[t, 0]],
+                    [points2[s, 1], points2[t, 1]],
+                    [points2[s, 2], points2[t, 2]],
                     color='black')
     if save:
         plt.savefig(filename)
@@ -178,32 +194,89 @@ def plot_skeletons(points1, points2 ,save=False, filename=None):
     plt.close()
 
 
+class KalmanFilter:
+    def __init__(self, bone_length_init, variance_init=np.zeros(13), Q=0.00005, R=0.2):
+        self.bone_length = bone_length_init
+        self.Q = Q
+        self.R = R
+        self.variance_kalman = variance_init
+
+    def update(self, bone_length_measure):
+        non_zero_idx = np.where(bone_length_measure != 0)[0]
+        variance_pred = self.variance_kalman[non_zero_idx] + self.Q
+        K = variance_pred / (variance_pred + self.R)
+        self.bone_length[non_zero_idx] = self.bone_length[non_zero_idx] + K * \
+                                         (bone_length_measure[non_zero_idx] - self.bone_length[non_zero_idx])
+        self.variance_kalman[non_zero_idx] = (1 - K) * variance_pred
+        return self.bone_length
+
+
 if __name__ == '__main__':
-    skeleton_points, time_stamps = load_data('skeleton3.csv') # TODO add confidence term to handle skeleton incomplete
+    skeleton_points, time_stamps = load_data('skeleton10.csv') # TODO add confidence term to handle skeleton incomplete
     bone_length = np.zeros((skeleton_points.shape[0], len(EDGES)))
     for human_idx in range(skeleton_points.shape[0]):
         for edge_idx in range(len(EDGES)):
             s, t = EDGES[edge_idx]
-            types = np.where(skeleton_points[human_idx, :, 0] != 0)[0]
+            types = np.where(skeleton_points[human_idx, :, 2] != 0)[0]
             if s in types and t in types:
                 bone_length[human_idx][edge_idx] = \
                     get_distance(skeleton_points[human_idx, s, :], skeleton_points[human_idx, t, :])
 
     bone_length_mean = np.sum(bone_length, axis=0) / np.count_nonzero(bone_length, axis=0)
     print(bone_length_mean)
+    print(skeleton_points.shape)
 
-    curr_points = skeleton_points[0]
-    for i in range(skeleton_points.shape[0]):
-        refine_skeleton(curr_points, skeleton_points[i], bone_length_mean)
-        non_zero_idx = np.where(skeleton_points[i, :, 0] != 0)[0]
-        # plot_skeletons(curr_points, skeleton_points[i], True, './result/%04d.png' % i)
-        if i in np.arange(300, 310):
+    print(bone_length.shape)
+    outlier_idx = np.where(np.max(bone_length, axis=1) > 2)[0]
+    outlier_time = time_stamps[np.where(np.max(bone_length, axis=1) > 2)[0]]
+    print(outlier_idx)
+    for t in outlier_time:
+        print(t)
+
+    last_visible_time = np.zeros(14)
+    skeleton_velocity = np.zeros((14, 3)) # TODO add threshold to velocity
+
+    curr_points = skeleton_points[0] # TODO init skeleton must be complete
+    last_points = skeleton_points[0]
+
+    kalman_filter = KalmanFilter(bone_length[0])
+    bone_length_kalman = np.zeros_like(bone_length)
+    for i in range(bone_length.shape[0]):
+        # print(kalman_filter.update(bone_length[0]))
+        bone_length_kalman[i, :] = kalman_filter.update(bone_length[i])
+    plt.plot(range(bone_length_kalman.shape[0]), bone_length_kalman)
+    plt.plot(range(bone_length.shape[0]), bone_length)
+    plt.show()
+
+    kalman_filter = KalmanFilter(bone_length[0])
+
+    confidence = np.ones(14)
+
+    # for i in range(skeleton_points.shape[0]):
+    for i in range(520):
+        if i in outlier_idx:
+            continue
+        if i > 0:
+            curr_points = curr_points + skeleton_velocity * (time_stamps[i] - time_stamps[i - 1])
+            confidence = np.exp(last_visible_time - time_stamps[i])
+            print('*' * 20 + str(i))
+            print(confidence)
+        last_points = curr_points
+        initial_cost = np.zeros(1, dtype=np.float64)
+        final_cost = np.zeros(1, dtype=np.float64)
+        refine_skeleton(curr_points, skeleton_points[i], kalman_filter.update(bone_length[i]),
+                        confidence, initial_cost, final_cost)
+        skeleton_velocity = np.divide(curr_points - last_points,
+                                      (time_stamps[i] - last_visible_time).reshape(-1, 1) + 0.0001)
+        skeleton_velocity = np.clip(skeleton_velocity, a_min=-0.2, a_max=0.2)
+        non_zero_idx = np.where(skeleton_points[i, :, 2] != 0)[0]
+        last_visible_time[non_zero_idx] = time_stamps[i]
+        plot_skeletons(curr_points, skeleton_points[i], True, './result/%04d.png' % i)
+        '''if i in np.arange(300, 310):
+            print(non_zero_idx)
             plot_skeletons(curr_points, skeleton_points[i])
-            print(curr_points)
-            print(skeleton_points[i])
-            print(get_bone_length(curr_points))
-            '''print(non_zero_idx)
-            print(curr_points[non_zero_idx] - skeleton_points[i, non_zero_idx, :])'''
+            print(initial_cost)
+            print(final_cost)'''
 
 
     '''type = 1

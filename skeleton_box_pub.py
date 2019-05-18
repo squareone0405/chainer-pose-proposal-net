@@ -104,8 +104,10 @@ class Capture(threading.Thread):
             if left_queue.qsize > 0 and right_queue.qsize() > 0 and len(timestamp_list) > 0:
                 left_t, left_image = left_queue.get()
                 right_t, right_image = right_queue.get()
+                print(left_t - right_t)
                 diff = np.fabs(timestamp_list - left_t)
                 min_idx = np.argmin(diff)
+                print(timestamp_list[min_idx] - left_t)
                 pose = pose_list[min_idx]
                 # timestamp_list = timestamp_list[min_idx:]
                 # pose_list = pose_list[min_idx:]
@@ -172,12 +174,12 @@ class Predictor(threading.Thread):
                 # print(skeleton_num[i])
                 points = []
                 types = []
-                if skeleton_num[i] > 0:
+                '''if skeleton_num[i] > 0:
                     points, types = self.get_points(humans_left[i], image_left, image_right, pose)
                 self.text_file.write(str(0) + ',' + str(0) + ',' + str(len(types)) + ',' + str(time.time()) + '\n')
                 for i in range(len(types)):
                     self.text_file.write(str(types[i]) + ',' + str(points[i][0]) + ','
-                                         + str(points[i][1]) + ',' + str(points[i][2]) + '\n')
+                                         + str(points[i][1]) + ',' + str(points[i][2]) + '\n')'''
 
     def get_head_depth(self, humans_left, image_left, image_right):
         if len(humans_left) > 0:
@@ -188,37 +190,38 @@ class Predictor(threading.Thread):
                 # print(skeleton_num[i])
                 points = []
                 types = []
-                if skeleton_num[i] > 0:
+                '''if skeleton_num[i] > 0:
                     points, types = self.get_points(humans_left[i], image_left, image_right)
                 if 1 in types:
-                    return points[types == 1][2]
+                    return points[types == 1][2]'''
         return 0
 
-    def pub_skeleton(self, humans_left, image_left, image_right, pose):
+    def pub_skeleton(self, humans_left, conf, image_left, image_right, pose):
+        global img_time_queue
         msg = Skeleton()
         msg.header = std_msgs.msg.Header()
-        msg.header.stamp = rospy.Time.now()
+        msg.header.stamp = img_time_queue.get()
         msg.human_num = len(humans_left)
         if len(humans_left) > 0:
             skeleton_num = [0] * len(humans_left)
             types = []
-            points = []
+            bboxes = []
+            depths = []
+            confidences = []
             for i in range(len(humans_left)):
                 skeleton_num[i] = len(humans_left[i]) - 1
-                print('skeleton num')
-                print(skeleton_num[i])
+                print('skeleton num: %d' % skeleton_num[i])
                 if skeleton_num[i] > 0:
-                    point_list, type_list = self.get_points(humans_left[i], image_left, image_right, pose)
-                    types.extend(type_list)
-                    for point in point_list:
-                        p = Point()
-                        p.x = point[0]
-                        p.y = point[1]
-                        p.z = point[2]
-                        points.append(p)
+                    bboxes_temp, depths_temp, types_temp = self.get_points(humans_left[i], image_left, image_right, pose)
+                    confidences.extend(list(np.array(list(conf[i].values())[1:]).astype(np.float64)))
+                    types.extend(types_temp)
+                    bboxes.extend(bboxes_temp)
+                    depths.extend(depths_temp)
             msg.skeleton_num = skeleton_num
             msg.types = types
-            msg.points = points
+            msg.bboxes = bboxes
+            msg.depths = depths
+            msg.confidences = confidences
             pub.publish(msg)
             print('done pub')
 
@@ -229,7 +232,8 @@ class Predictor(threading.Thread):
         FocalLength = fx_
 
         types = []
-        points = np.zeros((len(human) - 1, 3), dtype='float64')
+        depths = np.zeros((len(human) - 1), dtype='float64')
+        bboxes = np.zeros((len(human) - 1, 4), dtype='float64')
 
         mask_size = 3
         interp_range = (0.1, 1)
@@ -383,8 +387,7 @@ class Predictor(threading.Thread):
             if key != 0:
                 types.append(key)
                 ymin_f, xmin_f, ymax_f, xmax_f = human[key]  # TODO change the range of head and hip
-                points[idx, 0] = (xmin_f + xmax_f) * kx / 2
-                points[idx, 1] = (ymin_f + ymax_f) * ky / 2
+                bboxes[idx] = [ymin_f, xmin_f, ymax_f, xmax_f]
                 if key == 1:  # head top
                     ymin_f = ymin_f * 0.7 + ymax_f * 0.3
                 if key in [9, 10]:  # left hip or right hip
@@ -501,20 +504,19 @@ class Predictor(threading.Thread):
             # print(disparity)
             depth = (FocalLength * BaseLine) / (disparity + 0.0000001)
             # print(depth)
-            points[i, 2] = depth
+            depths[i] = depth
         # print(time.time() - start_time)
         '''for i in range(len(points)):
             points[i] = self.cap.pix2cam(points[i])
             points[i] = point_transform(points[i], pose)'''
         '''if 1 in types:
             points[0] = point_transform(points[0], pose)'''
-        print(points)
-        print(types)
-        return points.tolist(), types
+        return bboxes.flatten().tolist(), depths.tolist(), types
 
 
 left_queue = Queue.Queue(1000)
 right_queue = Queue.Queue(1000)
+img_time_queue = Queue.Queue(1000)
 pose_list = np.array([])
 timestamp_list = np.array([])
 
@@ -524,7 +526,7 @@ def left_image_callback(image_msg):
     left_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     t = image_msg.header.stamp.to_sec()
     left_queue.put((t, left_image))
-    # print('left:' + str(image_msg.header.seq) + 'queue:' + str(left_queue.qsize()))
+    img_time_queue.put(rospy.Time.now())
 
 
 def right_image_callback(image_msg):
@@ -532,7 +534,6 @@ def right_image_callback(image_msg):
     right_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     t = image_msg.header.stamp.to_sec()
     right_queue.put((t, right_image))
-    # print('right:' + str(image_msg.header.seq) + 'queue:' + str(right_queue.qsize()))
 
 
 def pose_callback(pose_msg):
@@ -540,7 +541,9 @@ def pose_callback(pose_msg):
     global timestamp_list
     pose_list = np.hstack((pose_list, pose_msg.pose))
     timestamp_list = np.hstack((timestamp_list, pose_msg.header.stamp.to_sec()))
-    # print('pose list size: %d' % len(pose_list))
+    pose_msg_cp = pose_msg
+    pose_msg_cp.header.stamp = rospy.Time.now()
+    pose_pub.publish(pose_msg)
 
 
 def pose_to_numpy(pose):
@@ -560,8 +563,6 @@ def pose_to_numpy(pose):
     position = [pose.position.x, pose.position.y, pose.position.z]
     eular = transformations.euler_from_quaternion(q_ori)
     eular_rect = np.array([-eular[2], eular[1], eular[0] + math.pi])
-    '''print(eular)
-    print(eular_rect)'''
     R_rect = transformations.quaternion_matrix(
         transformations.quaternion_from_euler(-eular[2], eular[1], eular[0] + math.pi))
     R_rect = np.linalg.inv(R_rect)
@@ -570,18 +571,11 @@ def pose_to_numpy(pose):
 
 
 def point_transform(point, pose):
-    # print('********************************************************************************')
     T_pose = pose_to_numpy(pose)
     point_body = np.array([point[2], point[0], -point[1]])
     pose_homo = np.hstack((point_body, [1]))
     # pose_homo = np.dot(np.linalg.inv(T_pose), pose_homo)
     pose_homo = np.dot(T_pose, pose_homo)
-    '''print(point)
-    print(point_body)
-    print(T_pose)
-    print(np.linalg.inv(T_pose))
-    print(pose_homo)
-    print('///////////////////////////////////////////////////////')'''
     return pose_homo[:-1]
 
 
@@ -614,12 +608,12 @@ def main():
             degree = degree % 360
             try:
                 image, feature_map, image_left, image_right, pose = predictor.get()
-                humans = get_humans_by_feature(model, feature_map)
+                humans, confidences = get_humans_by_feature(model, feature_map)
             except Queue.Empty:
                 continue
             except Exception:
                 break
-            predictor.pub_skeleton(humans, image_left, image_right, pose)
+            predictor.pub_skeleton(humans, confidences, image_left, image_right, pose)
             # predictor.save_skeleton(humans, image_left, image_right, pose)
             # head_depth = predictor.get_head_depth(humans, image_left, image_right)
             pilImg = Image.fromarray(image)
@@ -661,5 +655,6 @@ if __name__ == '__main__':
     pub = rospy.Publisher('skeleton', Skeleton, queue_size=1000)
     left_sub = rospy.Subscriber('/zed/left/image_rect_color/compressed', CompressedImage, left_image_callback)
     right_sub = rospy.Subscriber('/zed/right/image_rect_color/compressed', CompressedImage, right_image_callback)
-    pose_sub = rospy.Subscriber('/mavros/local_position/pose', PoseStamped, pose_callback)
+    pose_sub = rospy.Subscriber('/mavros/local_position/pose2', PoseStamped, pose_callback)
+    pose_pub = rospy.Publisher('/mavros/local_position/pose', PoseStamped, queue_size=1000)
     main()
