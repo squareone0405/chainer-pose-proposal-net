@@ -387,7 +387,7 @@ class Predictor(threading.Thread):
             if key != 0:
                 types.append(key)
                 ymin_f, xmin_f, ymax_f, xmax_f = human[key]  # TODO change the range of head and hip
-                bboxes[idx] = [ymin_f, xmin_f, ymax_f, xmax_f]
+                bboxes[idx] = [ymin_f * ky, xmin_f * kx, ymax_f * ky, xmax_f * kx]
                 if key == 1:  # head top
                     ymin_f = ymin_f * 0.7 + ymax_f * 0.3
                 if key in [9, 10]:  # left hip or right hip

@@ -18,11 +18,12 @@ lib = cdll.LoadLibrary('../skeleton_optimizer/cmake-build-debug/libskeleton.so')
 ceres_refine = lib.refine_skeleton
 
 
-def refine_skeleton(init_points, expect_points, bone_length, confidence, initial_cost, final_cost):
+def refine_skeleton(init_points, expect_points, bone_length, init_confidence, guide_confidence, initial_cost, final_cost):
     ceres_refine(ctypes.c_void_p(init_points.ctypes.data),
                  ctypes.c_void_p(expect_points.ctypes.data),
                  ctypes.c_void_p(bone_length.ctypes.data),
-                 ctypes.c_void_p(confidence.ctypes.data),
+                 ctypes.c_void_p(init_confidence.ctypes.data),
+                 ctypes.c_void_p(guide_confidence.ctypes.data),
                  ctypes.c_void_p(initial_cost.ctypes.data),
                  ctypes.c_void_p(final_cost.ctypes.data))
 
@@ -109,13 +110,13 @@ def pose_to_numpy(pose):
     position = [pose.position.x, pose.position.y, pose.position.z]
     eular = transformations.euler_from_quaternion(q_ori)
     eular_rect = np.array([-eular[2], eular[1], eular[0] + math.pi])
-    print(eular_rect)
+    # print(eular_rect)
     R_rect = transformations.quaternion_matrix(
         transformations.quaternion_from_euler(-eular[2], eular[1], eular[0] + math.pi))
     R_rect = np.linalg.inv(R_rect)
     T_rect = np.dot(transformations.translation_matrix(position), R_rect)
-    print(T_rect)
-    print('++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
+    # print(T_rect)
+    # print('++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
     return T_rect
 
 
@@ -123,12 +124,12 @@ def point_transform(point, pose):
     if point[2] == 0:
         return np.zeros(3)
     T_pose = pose_to_numpy(pose)
-    point_body = np.array([point[2], point[0], -point[1]])
-    print(point_body)
+    point_body = np.array([point[2], -point[0], -point[1]])
+    # print(point_body)
     pose_homo = np.hstack((point_body, [1]))
     # pose_homo = np.dot(np.linalg.inv(T_pose), pose_homo)
     pose_homo = np.dot(T_pose, pose_homo)
-    print(pose_homo)
+    # print(pose_homo)
     return pose_homo[:-1]
 
 
@@ -136,14 +137,19 @@ def parse_skeleton_msg(skeleton_msg):
     if skeleton_msg.human_num == 0:
         return np.array([]), 0
     skeleton_points = np.zeros((skeleton_msg.human_num, 14, 3))
-    msg_point_idx = 0
+    confidences = np.zeros((skeleton_msg.human_num, 14))
+    point_idx = 0
     for human_idx in range(skeleton_msg.human_num):
         for skeleton_idx in range(skeleton_msg.skeleton_num[human_idx]):
-            skeleton_points[human_idx, skeleton_msg.types[msg_point_idx] - 1, 0] = skeleton_msg.points[msg_point_idx].x
-            skeleton_points[human_idx, skeleton_msg.types[msg_point_idx] - 1, 1] = skeleton_msg.points[msg_point_idx].y
-            skeleton_points[human_idx, skeleton_msg.types[msg_point_idx] - 1, 2] = skeleton_msg.points[msg_point_idx].z
-            msg_point_idx = msg_point_idx + 1
-    return skeleton_points, skeleton_msg.header.stamp.to_sec()
+            confidences[human_idx, skeleton_msg.types[point_idx] - 1] = skeleton_msg.confidences[point_idx]
+            x = (skeleton_msg.bboxes[point_idx * 4 + 1] + skeleton_msg.bboxes[point_idx * 4 + 3]) / 2
+            y = (skeleton_msg.bboxes[point_idx * 4] + skeleton_msg.bboxes[point_idx * 4 + 2]) / 2
+            skeleton_points[human_idx, skeleton_msg.types[point_idx] - 1, 0] = x
+            skeleton_points[human_idx, skeleton_msg.types[point_idx] - 1, 1] = y
+            skeleton_points[human_idx, skeleton_msg.types[point_idx] - 1, 2] = skeleton_msg.depths[point_idx]
+            point_idx = point_idx + 1
+    # print(skeleton_msg.depths)
+    return skeleton_points, confidences, skeleton_msg.header.stamp.to_sec()
 
 
 def draw_skeleton(skeleton_points):
@@ -202,10 +208,10 @@ def pose_interpolate(t):
 
 
 def skeleton_callback(skeleton_msg):
-    skeleton_points, timestamp = parse_skeleton_msg(skeleton_msg)
+    skeleton_points, confidences, timestamp = parse_skeleton_msg(skeleton_msg)
     pose_interp = pose_interpolate(timestamp)
-    print(skeleton_points)
-    print('--------------------------------------------')
+    '''print(skeleton_points)
+    print('--------------------------------------------')'''
     for human_idx in range(skeleton_points.shape[0]):
         for skeleton_idx in range(14):
             point_temp = skeleton_points[human_idx, skeleton_idx, :]
@@ -213,7 +219,7 @@ def skeleton_callback(skeleton_msg):
             point_temp = point_transform(point_temp, pose_interp)
             skeleton_points[human_idx, skeleton_idx, :] = point_temp
     # draw_skeleton(skeleton_points)
-    human_tracker.refine(skeleton_points, timestamp)
+    human_tracker.refine(skeleton_points, confidences, timestamp)
 
 
 def pose_callback(pose_msg):
@@ -243,7 +249,7 @@ class KalmanFilter:
         return self.bone_length
 
 
-class HumanTracker():
+class HumanTracker:
     def __init__(self):
         self.bone_length = np.zeros(13)
         self.skeleton_points = np.zeros((14, 3))
@@ -254,14 +260,28 @@ class HumanTracker():
         self.human_distance_thres = 0.5
         self.timestamp = 0
 
-    def refine(self, human_points, timestamp):
+    def refine(self, human_points, guide_conf, timestamp):
+        '''print('-------------------------------------------------------')
         print(timestamp)
         print(self.bone_length)
+        print(human_points)'''
+        '''for i in range(14):
+            print(self.get_distance(self.skeleton_points[i, :],
+                                    np.array([pose_lastest.position.x, pose_lastest.position.y, pose_lastest.position.z])))'''
         if human_points.shape[0] == 0:
             return
         for human_idx in range(human_points.shape[0]):
             if np.any(self.bone_length == 0):
                 if human_points.shape[0] == 1:
+                    bone_length_new = self.get_bone_length(np.squeeze(human_points[human_idx, :, :]))
+                    if np.any(bone_length_new < 1e-10):
+                        continue
+                    else:
+                        self.bone_length = bone_length_new
+                        self.skeleton_points = np.squeeze(human_points[0, :, :])
+                        self.timestamp = timestamp
+                        self.kalman_filter = KalmanFilter(self.bone_length)
+                '''if human_points.shape[0] == 1:
                     bone_length_new = self.get_bone_length(np.squeeze(human_points[human_idx, :, :]))
                     bone_zero_idx = np.where(self.bone_length < 1e-10)[0]
                     print(bone_length_new)
@@ -272,38 +292,44 @@ class HumanTracker():
                     self.bone_length = self.bone_length * 0.8 + bone_length_new * 0.2 # exp smooth
                     self.skeleton_points = np.squeeze(human_points[0, :, :])
                     self.timestamp = timestamp
-                    point_nz_idx = np.where(human_points[human_idx, :, 2] == 0)[0]
+                    point_nz_idx = np.where(human_points[human_idx, :, 2] != 0)[0]
                     self.last_visible_time[point_nz_idx] = timestamp
                     if not np.any(self.bone_length < 1e-10):
-                        self.kalman_filter = KalmanFilter(self.bone_length)
+                        self.kalman_filter = KalmanFilter(self.bone_length)'''
             else:
                 if self.get_human_distance(np.squeeze(human_points[human_idx, :, :])) > self.human_distance_thres:
                     continue
                 ''' update confidence, last_visible_time, bone_length '''
                 curr_points = self.skeleton_points + self.skeleton_velocity * (timestamp - self.timestamp)
+                print('+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++')
                 self.confidence = np.exp(self.last_visible_time - timestamp)
-                point_nz_idx = np.where(human_points[human_idx, :, 2] == 0)[0]
+                point_nz_idx = np.where(human_points[human_idx, :, 2] != 0)[0]
                 self.last_visible_time[point_nz_idx] = timestamp
                 bone_length_new = self.get_bone_length(np.squeeze(human_points[human_idx, :, :]))
                 self.kalman_filter.update(bone_length_new)
 
                 ''' refine '''
-                last_points = curr_points
+                last_points = np.copy(curr_points)
                 initial_cost = np.zeros(1, dtype=np.float64)
                 final_cost = np.zeros(1, dtype=np.float64)
                 refine_skeleton(curr_points, human_points[human_idx, :, :], self.bone_length,
-                                self.confidence, initial_cost, final_cost)
+                                self.confidence, guide_conf, initial_cost, final_cost)
                 self.skeleton_points = curr_points
+                print(initial_cost)
+                print(final_cost)
+                # print(curr_points - last_points)
 
                 ''' update vel and clip '''
-                self.skeleton_velocity = np.divide(curr_points - last_points,
+                '''self.skeleton_velocity = np.divide(curr_points - last_points,
                                               (timestamp - self.last_visible_time).reshape(-1, 1) + 0.0001)
-                self.skeleton_velocity = np.clip(self.skeleton_velocity, a_min=-0.2, a_max=0.2)
+                self.skeleton_velocity = np.clip(self.skeleton_velocity, a_min=-0.2, a_max=0.2)'''
+                self.skeleton_velocity = np.zeros_like(self.skeleton_velocity)
 
                 point4draw = np.zeros((1, 14, 3))
                 point4draw[0, :, :] = self.skeleton_points
                 # print(self.skeleton_points)
                 # print(point4draw)
+                # draw_skeleton(human_points)
                 draw_skeleton(point4draw)
 
     def get_human_distance(self, skeleton_new):
@@ -334,8 +360,9 @@ class HumanTracker():
 if __name__ == '__main__':
     human_tracker = HumanTracker()
     rospy.init_node('skeleton_draw', anonymous=True)
-    marker_pub = rospy.Publisher('skeleton_marker', MarkerArray, queue_size=1000)
+    marker_pub = rospy.Publisher('skeleton_marker_1', MarkerArray, queue_size=1000)
     skeleton_sub = rospy.Subscriber('skeleton', Skeleton, skeleton_callback)
-    pose_sub = rospy.Subscriber('/mavros/local_position/pose', PoseStamped, pose_callback)
+    pose_sub = rospy.Subscriber('/mavros/local_position/pose_1', PoseStamped, pose_callback)
+
     rospy.spin()
 
