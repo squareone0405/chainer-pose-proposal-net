@@ -14,7 +14,7 @@ from tf import transformations
 import ctypes
 from ctypes import cdll
 
-lib = cdll.LoadLibrary('../skeleton_optimizer/cmake-build-debug/libskeleton.so')
+lib = cdll.LoadLibrary('./skeleton_optimizer/cmake-build-debug/libskeleton.so')
 ceres_refine = lib.refine_skeleton
 ceres_transform = lib.guide_transform
 
@@ -28,12 +28,13 @@ def guide_transform(last_points, guide_points, guide_confidence, init_trans, ini
                     ctypes.c_void_p(final_cost.ctypes.data))
 
 
-def refine_skeleton(init_points, expect_points, bone_length, init_confidence, guide_confidence, initial_cost, final_cost):
+def refine_skeleton(init_points, guide_points, init_confidence, guide_confidence, bone_length, initial_cost, final_cost):
+    print(bone_length)
     ceres_refine(ctypes.c_void_p(init_points.ctypes.data),
-                 ctypes.c_void_p(expect_points.ctypes.data),
-                 ctypes.c_void_p(bone_length.ctypes.data),
+                 ctypes.c_void_p(guide_points.ctypes.data),
                  ctypes.c_void_p(init_confidence.ctypes.data),
                  ctypes.c_void_p(guide_confidence.ctypes.data),
+                 ctypes.c_void_p(bone_length.ctypes.data),
                  ctypes.c_void_p(initial_cost.ctypes.data),
                  ctypes.c_void_p(final_cost.ctypes.data))
 
@@ -318,21 +319,6 @@ class HumanTracker:
                         self.skeleton_points = np.squeeze(human_points[0, :, :])
                         self.timestamp = timestamp
                         self.kalman_filter = KalmanFilter(self.bone_length)
-                '''if human_points.shape[0] == 1:
-                    bone_length_new = self.get_bone_length(np.squeeze(human_points[human_idx, :, :]))
-                    bone_zero_idx = np.where(self.bone_length < 1e-10)[0]
-                    print(bone_length_new)
-                    print(bone_zero_idx)
-                    # if bone_zero_idx.shape[0] > 6:
-                    if bone_zero_idx.shape[0] > 0:
-                        self.bone_length[bone_zero_idx] = bone_length_new[bone_zero_idx]
-                    self.bone_length = self.bone_length * 0.8 + bone_length_new * 0.2 # exp smooth
-                    self.skeleton_points = np.squeeze(human_points[0, :, :])
-                    self.timestamp = timestamp
-                    point_nz_idx = np.where(human_points[human_idx, :, 2] == 0)[0]
-                    self.last_visible_time[point_nz_idx] = timestamp
-                    if not np.any(self.bone_length < 1e-10):
-                        self.kalman_filter = KalmanFilter(self.bone_length)'''
             else:
                 '''if id == 0:
                     return'''
@@ -363,8 +349,8 @@ class HumanTracker:
                 last_points = np.copy(curr_points)
                 initial_cost = np.zeros(1, dtype=np.float64)
                 final_cost = np.zeros(1, dtype=np.float64)
-                refine_skeleton(curr_points, human_points[human_idx, :, :], self.bone_length,
-                                self.confidence, guide_conf, initial_cost, final_cost)
+                refine_skeleton(curr_points, human_points[human_idx, :, :], self.confidence, guide_conf,
+                                self.bone_length, initial_cost, final_cost)
                 self.skeleton_points = curr_points
                 print(initial_cost)
                 print(final_cost)

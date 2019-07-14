@@ -19,6 +19,7 @@ find_package(catkin REQUIRED COMPONENTS
 add_message_files(
   FILES
   Skeleton.msg
+  Bbox.msg
 )
 
 generate_messages(

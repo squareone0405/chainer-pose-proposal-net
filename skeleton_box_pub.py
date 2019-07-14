@@ -7,6 +7,7 @@ from geometry_msgs.msg import Point
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Pose
 from ppn.msg import Skeleton
+from ppn.msg import Bbox
 from cv_bridge import CvBridge
 from tf import transformations
 
@@ -55,6 +56,8 @@ QUEUE_SIZE = 5
 
 bridge = CvBridge()
 
+zed_width = 672
+zed_height = 376
 cx_ = 346.46478271484375
 cy_ = 200.3520050048828
 fx_ = 334.70111083984375
@@ -78,13 +81,25 @@ Ry, _ = cv2.Rodrigues(np.array([0, CV_VGA, 0]))
 Rx, _ = cv2.Rodrigues(np.array([RX_VGA, 0, 0]))
 R = np.dot(Rz, np.dot(Ry, Rx))
 
+bounding_box = np.array([[0.0, 0.0], [0.0, 0.0]])
+drone_id = 0
+
+plot = False
+
+
+def bbox_callback(bbox_msg):
+    global bounding_box
+    global drone_id
+    if bbox_msg.drone_id == drone_id:
+        bounding_box = np.array(bbox_msg.bbox).reshape(2, 2)
+
 
 class Capture(threading.Thread):
     def __init__(self, insize):
         super(Capture, self).__init__()
         self.insize = insize
-        self.kx = 1.0 * 672 / insize[0]
-        self.ky = 1.0 * 376 / insize[1]
+        self.kx = 1.0 * zed_width / insize[0]
+        self.ky = 1.0 * zed_height / insize[1]
         self.stop_event = threading.Event()
         self.queue = Queue.Queue(QUEUE_SIZE)
         self.name = 'Capture'
@@ -104,16 +119,14 @@ class Capture(threading.Thread):
             if left_queue.qsize > 0 and right_queue.qsize() > 0 and len(timestamp_list) > 0:
                 left_t, left_image = left_queue.get()
                 right_t, right_image = right_queue.get()
-                print(left_t - right_t)
                 diff = np.fabs(timestamp_list - left_t)
                 min_idx = np.argmin(diff)
-                print(timestamp_list[min_idx] - left_t)
                 pose = pose_list[min_idx]
                 # timestamp_list = timestamp_list[min_idx:]
                 # pose_list = pose_list[min_idx:]
-                side_by_side = np.zeros((376, 672 * 2, 3), dtype=np.uint8)
-                side_by_side[:, :672, :] = left_image
-                side_by_side[:, 672:, :] = right_image
+                side_by_side = np.zeros((zed_height, zed_width * 2, 3), dtype=np.uint8)
+                side_by_side[:, :zed_width, :] = left_image
+                side_by_side[:, zed_width:, :] = right_image
                 try:
                     image = cv2.cvtColor(side_by_side, cv2.COLOR_BGR2RGB)
                     self.queue.put((image, pose), timeout=1)
@@ -143,20 +156,65 @@ class Predictor(threading.Thread):
     def run(self):
         while not self.stop_event.is_set():
             try:
+                bbox_thin, bbox_fat = self.get_bbox()
                 raw_image, pose = self.cap.get()
                 image_left = raw_image[:, 0:raw_image.shape[1] / 2, :]
                 image_right = raw_image[:, raw_image.shape[1] / 2:, :]
-                image = cv2.resize(image_left, self.cap.insize)
+                image = image_left[bbox_fat[0, 0]: bbox_fat[1, 0], bbox_fat[0, 1]: bbox_fat[1, 1]]
+                image = cv2.resize(image, self.cap.insize)
                 with chainer.using_config('autotune', True), \
                         chainer.using_config('use_ideep', 'auto'):
                     feature_map = get_feature(self.model, image.transpose(2, 0, 1).astype(np.float32))
                 image_left = cv2.cvtColor(image_left, cv2.COLOR_RGB2GRAY)
                 image_right = cv2.cvtColor(image_right, cv2.COLOR_RGB2GRAY)
-                self.queue.put((image, feature_map, image_left, image_right, pose), timeout=1)
+                self.queue.put((image, feature_map, image_left, image_right, pose, bbox_thin, bbox_fat), timeout=1)
             except Queue.Full:
                 pass
             except Queue.Empty:
                 pass
+
+    def get_bbox(self):
+        global bounding_box
+        if bounding_box[1, 0] < 1e-10 or bounding_box[1, 1] < 1e-10:
+            return np.array([[0, 0], [zed_height, zed_width]], dtype=np.int32), \
+                   np.array([[0, 0], [zed_height, zed_width]], dtype=np.int32)
+        box_top = bounding_box[0, 0]
+        box_bottom = bounding_box[1, 0]
+        box_left = bounding_box[0, 1]
+        box_right = bounding_box[1, 1]
+        height = box_bottom - box_top
+        width = box_right - box_left
+        bbox_thin = np.zeros((2, 2))
+        bbox_thin[0, 0] = max(0, box_top - 0.1 * height)
+        bbox_thin[1, 0] = min(zed_height, box_bottom + 0.1 * height)
+        bbox_thin[0, 1] = max(0, box_left - 0.1 * width)
+        bbox_thin[1, 1] = min(zed_width, box_right + 0.1 * width)
+        height_extend = bbox_thin[1, 0] - bbox_thin[0, 0]
+        width_extend = bbox_thin[1, 1] - bbox_thin[0, 1]
+        side_length = max(height_extend, width_extend)
+        side_length = min(zed_height, side_length)
+        center_y = (box_top + box_bottom) / 2.0
+        center_x = (box_left + box_right) / 2.0
+        fat_top = center_y - side_length / 2.0
+        fat_buttom = center_y + side_length / 2.0
+        fat_left = center_x - side_length / 2.0
+        fat_right = center_x + side_length / 2.0
+        if fat_top < 0:
+            fat_buttom -= fat_top
+            fat_top = 0
+        if fat_buttom > zed_height:
+            fat_top -= (fat_buttom - zed_height)
+            fat_buttom = zed_height
+        if fat_left < 0:
+            fat_right -= fat_left
+            fat_left = 0
+        if fat_right > zed_width:
+            fat_left -= (fat_right - zed_width)
+            fat_right = zed_width
+        bbox_fat = np.array([fat_top, fat_left, fat_buttom, fat_right]).reshape(2, 2)
+        bbox_thin = np.round(bbox_thin, decimals=1).astype(np.int32)
+        bbox_fat = np.round(bbox_fat, decimals=1).astype(np.int32)
+        return bbox_thin, bbox_fat
 
     def get(self):
         return self.queue.get(timeout=1)
@@ -170,8 +228,6 @@ class Predictor(threading.Thread):
             skeleton_num = [0] * len(humans_left)
             for i in range(len(humans_left)):
                 skeleton_num[i] = len(humans_left[i]) - 1
-                # print('skeleton num')
-                # print(skeleton_num[i])
                 points = []
                 types = []
                 '''if skeleton_num[i] > 0:
@@ -186,8 +242,6 @@ class Predictor(threading.Thread):
             skeleton_num = [0] * len(humans_left)
             for i in range(len(humans_left)):
                 skeleton_num[i] = len(humans_left[i]) - 1
-                # print('skeleton num')
-                # print(skeleton_num[i])
                 points = []
                 types = []
                 '''if skeleton_num[i] > 0:
@@ -196,12 +250,12 @@ class Predictor(threading.Thread):
                     return points[types == 1][2]'''
         return 0
 
-    def pub_skeleton(self, humans_left, conf, image_left, image_right, pose):
+    def pub_skeleton(self, humans_left, conf, image_left, image_right, pose, bbox_thin, bbox_fat):
         global img_time_queue
         msg = Skeleton()
         msg.header = std_msgs.msg.Header()
         msg.header.stamp = img_time_queue.get()
-        msg.human_num = len(humans_left)
+        human_count = 0
         if len(humans_left) > 0:
             skeleton_num = [0] * len(humans_left)
             types = []
@@ -210,23 +264,65 @@ class Predictor(threading.Thread):
             confidences = []
             for i in range(len(humans_left)):
                 skeleton_num[i] = len(humans_left[i]) - 1
-                print('skeleton num: %d' % skeleton_num[i])
+                # print('skeleton num: %d' % skeleton_num[i])
                 if skeleton_num[i] > 0:
-                    bboxes_temp, depths_temp, types_temp = self.get_points(humans_left[i], image_left, image_right, pose)
+                    bboxes_temp, depths_temp, types_temp = self.get_points(humans_left[i], image_left,
+                                                                           image_right, bbox_thin, bbox_fat)
+                    if bboxes_temp is None:
+                        continue
+                    human_count += 1
                     confidences.extend(list(np.array(list(conf[i].values())[1:]).astype(np.float64)))
                     types.extend(types_temp)
                     bboxes.extend(bboxes_temp)
                     depths.extend(depths_temp)
+            if human_count == 0:
+                return
             msg.skeleton_num = skeleton_num
             msg.types = types
             msg.bboxes = bboxes
             msg.depths = depths
             msg.confidences = confidences
+            msg.human_num = human_count
             pub.publish(msg)
-            print('done pub')
 
-    def get_points(self, human, image_left, image_right, pose):
-        plot = False
+    def get_points(self, human, image_left, image_right, bbox_thin, bbox_fat):
+        global plot
+        global bounding_box
+
+        if len(human) <= 1:
+            return None, None, None
+
+        bbox_curr = np.zeros(4)
+        bbox_curr[0] = np.inf
+        bbox_curr[1] = np.inf
+        for key in sorted(human):
+            if key != 0:
+                ymin_f, xmin_f, ymax_f, xmax_f = human[key]
+                y = (ymin_f + ymax_f) / 2
+                x = (xmin_f + xmax_f) / 2
+                y = bbox_fat[0, 0] + y * (bbox_fat[1, 0] - bbox_fat[0, 0]) / (1.0 * self.cap.insize[1])
+                x = bbox_fat[0, 1] + x * (bbox_fat[1, 1] - bbox_fat[0, 1]) / (1.0 * self.cap.insize[0])
+                bbox_curr[0] = min(bbox_curr[0], y)
+                bbox_curr[1] = min(bbox_curr[1], x)
+                bbox_curr[2] = max(bbox_curr[2], y)
+                bbox_curr[3] = max(bbox_curr[3], x)
+        top = max(bbox_curr[0], bbox_thin[0, 0])
+        left = max(bbox_curr[1], bbox_thin[0, 1])
+        bottom = min(bbox_curr[2], bbox_thin[1, 0])
+        right = min(bbox_curr[3], bbox_thin[1, 1])
+        intersection = (right - left) * (bottom - top)
+        area_curr = (bbox_curr[2] - bbox_curr[0]) * (bbox_curr[3] - bbox_curr[1])
+        area_thin = (bbox_thin[1, 0] - bbox_thin[0, 0]) * (bbox_thin[1, 1] - bbox_thin[0, 1])
+        iou = 0.0
+        if right < left or bottom < top:
+            iou = 0.0
+        else:
+            iou = intersection / (area_curr + area_thin - intersection)
+        print(bbox_curr)
+        print('iou: %.4f, thres: %.4f' % (iou, 0.35 * (len(human) - 1) / 14))
+        if iou < (0.35 * (len(human) - 1) / 14) and bounding_box[1, 0] > 1e-10 and bounding_box[1, 1] > 1e-10:
+            print('---------------------------------------------------------------------')
+            return None, None, None
 
         BaseLine = 0.12
         FocalLength = fx_
@@ -276,6 +372,14 @@ class Predictor(threading.Thread):
         for key in sorted(human):
             if key != 0:
                 ymin_f, xmin_f, ymax_f, xmax_f = human[key]  # TODO change the range of head and hip
+                ymin_f = (bbox_fat[0, 0] + ymin_f * (bbox_fat[1, 0] - bbox_fat[0, 0]) / (
+                            1.0 * self.cap.insize[1])) / self.cap.ky
+                ymax_f = (bbox_fat[0, 0] + ymax_f * (bbox_fat[1, 0] - bbox_fat[0, 0]) / (
+                            1.0 * self.cap.insize[1])) / self.cap.ky
+                xmin_f = (bbox_fat[0, 1] + xmin_f * (bbox_fat[1, 1] - bbox_fat[0, 1]) / (
+                            1.0 * self.cap.insize[0])) / self.cap.kx
+                xmax_f = (bbox_fat[0, 1] + xmax_f * (bbox_fat[1, 1] - bbox_fat[0, 1]) / (
+                            1.0 * self.cap.insize[0])) / self.cap.kx
 
                 if key == 1:  # head top
                     ymin_f = ymin_f * 0.7 + ymax_f * 0.3
@@ -289,7 +393,6 @@ class Predictor(threading.Thread):
                 xmax = min(int(xmax_f * kx), image_left.shape[1])
 
                 window = image_left[ymin:ymax, xmin:xmax].astype(np.int32)
-                # print(ymin, ymax, xmin, xmax)
 
                 target = np.full((window.shape[0] + search_ymax - search_ymin,
                                   window.shape[1] + search_xmax - search_xmin), 512, dtype='int32')
@@ -387,6 +490,15 @@ class Predictor(threading.Thread):
             if key != 0:
                 types.append(key)
                 ymin_f, xmin_f, ymax_f, xmax_f = human[key]  # TODO change the range of head and hip
+                ymin_f = (bbox_fat[0, 0] + ymin_f * (bbox_fat[1, 0] - bbox_fat[0, 0]) / (
+                        1.0 * self.cap.insize[1])) / self.cap.ky
+                ymax_f = (bbox_fat[0, 0] + ymax_f * (bbox_fat[1, 0] - bbox_fat[0, 0]) / (
+                        1.0 * self.cap.insize[1])) / self.cap.ky
+                xmin_f = (bbox_fat[0, 1] + xmin_f * (bbox_fat[1, 1] - bbox_fat[0, 1]) / (
+                        1.0 * self.cap.insize[0])) / self.cap.kx
+                xmax_f = (bbox_fat[0, 1] + xmax_f * (bbox_fat[1, 1] - bbox_fat[0, 1]) / (
+                        1.0 * self.cap.insize[0])) / self.cap.kx
+
                 bboxes[idx] = [ymin_f * ky, xmin_f * kx, ymax_f * ky, xmax_f * kx]
                 if key == 1:  # head top
                     ymin_f = ymin_f * 0.7 + ymax_f * 0.3
@@ -506,11 +618,6 @@ class Predictor(threading.Thread):
             # print(depth)
             depths[i] = depth
         # print(time.time() - start_time)
-        '''for i in range(len(points)):
-            points[i] = self.cap.pix2cam(points[i])
-            points[i] = point_transform(points[i], pose)'''
-        '''if 1 in types:
-            points[0] = point_transform(points[0], pose)'''
         return bboxes.flatten().tolist(), depths.tolist(), types
 
 
@@ -547,18 +654,6 @@ def pose_callback(pose_msg):
 
 
 def pose_to_numpy(pose):
-    '''q_bw_ned = [pose.orientation.w, pose.orientation.x, pose.orientation.y, pose.orientation.z]
-    position = [pose.position.x, pose.position.y, pose.position.z]
-    print(transformations.euler_from_quaternion(q_bw_ned))
-    print(transformations.quaternion_matrix(q_bw_ned))
-    T_bw_ned = transformations.quaternion_matrix(q_bw_ned)
-    T_bw_enu = np.eye(4)
-    T_bw_enu[0:3, 0:3] = np.matmul(np.array([[0, 1, 0], [1, 0, 0], [0, 0, -1]]), T_bw_ned[0:3, 0:3])
-    T_bw = np.dot(transformations.translation_matrix(position), T_bw_enu)
-    T_cb = np.eye(4)
-    T_cb[0:3, 0:3] = np.array([[0, -1, 0], [-1, 0, 0], [0, 0, 1]])
-    return np.dot(T_cb, T_bw)'''
-
     q_ori = [pose.orientation.w, pose.orientation.x, pose.orientation.y, pose.orientation.z]
     position = [pose.position.x, pose.position.y, pose.position.z]
     eular = transformations.euler_from_quaternion(q_ori)
@@ -607,13 +702,13 @@ def main():
             degree += 5
             degree = degree % 360
             try:
-                image, feature_map, image_left, image_right, pose = predictor.get()
+                image, feature_map, image_left, image_right, pose, bbox_thin, bbox_fat = predictor.get()
                 humans, confidences = get_humans_by_feature(model, feature_map)
             except Queue.Empty:
                 continue
             except Exception:
                 break
-            predictor.pub_skeleton(humans, confidences, image_left, image_right, pose)
+            predictor.pub_skeleton(humans, confidences, image_left, image_right, pose, bbox_thin, bbox_fat)
             # predictor.save_skeleton(humans, image_left, image_right, pose)
             # head_depth = predictor.get_head_depth(humans, image_left, image_right)
             pilImg = Image.fromarray(image)
@@ -653,6 +748,7 @@ def main():
 if __name__ == '__main__':
     rospy.init_node('skeleton_pub', anonymous=True)
     pub = rospy.Publisher('skeleton', Skeleton, queue_size=1000)
+    bbox_sub = rospy.Subscriber('/bbox_feadback', Bbox, bbox_callback)
     left_sub = rospy.Subscriber('/zed/left/image_rect_color/compressed', CompressedImage, left_image_callback)
     right_sub = rospy.Subscriber('/zed/right/image_rect_color/compressed', CompressedImage, right_image_callback)
     pose_sub = rospy.Subscriber('/mavros/local_position/pose2', PoseStamped, pose_callback)
