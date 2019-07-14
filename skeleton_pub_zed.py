@@ -455,7 +455,7 @@ def main():
             degree = degree % 360
             try:
                 image, feature_map, image_left, image_right = predictor.get()
-                humans = get_humans_by_feature(model, feature_map)
+                humans, confidences = get_humans_by_feature(model, feature_map)
             except Queue.Empty:
                 continue
             except Exception:

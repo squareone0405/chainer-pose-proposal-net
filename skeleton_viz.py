@@ -20,7 +20,6 @@ ceres_refine = lib.refine_skeleton
 
 
 def refine_skeleton(init_points, guide_points, init_confidence, guide_confidence, bone_length, initial_cost, final_cost):
-    print(bone_length)
     ceres_refine(ctypes.c_void_p(init_points.ctypes.data),
                  ctypes.c_void_p(guide_points.ctypes.data),
                  ctypes.c_void_p(init_confidence.ctypes.data),
@@ -324,8 +323,6 @@ class HumanTracker:
             return np.inf
         skeleton_new_nz = skeleton_new[non_zero_idx]
         target_nz = self.skeleton_points[non_zero_idx]
-        # print(np.mean(np.fabs(skeleton_new_nz - target_nz), axis=0))
-        # print('distance: %f' % np.mean(np.mean(np.fabs(skeleton_new_nz - target_nz), axis=0)))
         return np.mean(np.mean(np.fabs(skeleton_new_nz - target_nz), axis=0))
 
     def get_distance(self, point1, point2):

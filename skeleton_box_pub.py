@@ -114,22 +114,18 @@ class Capture(threading.Thread):
         while not self.stop_event.is_set():
             global left_queue
             global right_queue
-            global pose_list
             global timestamp_list
             if left_queue.qsize > 0 and right_queue.qsize() > 0 and len(timestamp_list) > 0:
                 left_t, left_image = left_queue.get()
                 right_t, right_image = right_queue.get()
                 diff = np.fabs(timestamp_list - left_t)
                 min_idx = np.argmin(diff)
-                pose = pose_list[min_idx]
-                # timestamp_list = timestamp_list[min_idx:]
-                # pose_list = pose_list[min_idx:]
                 side_by_side = np.zeros((zed_height, zed_width * 2, 3), dtype=np.uint8)
                 side_by_side[:, :zed_width, :] = left_image
                 side_by_side[:, zed_width:, :] = right_image
                 try:
                     image = cv2.cvtColor(side_by_side, cv2.COLOR_BGR2RGB)
-                    self.queue.put((image, pose), timeout=1)
+                    self.queue.put(image, timeout=1)
                 except Queue.Full:
                     pass
 
@@ -157,7 +153,7 @@ class Predictor(threading.Thread):
         while not self.stop_event.is_set():
             try:
                 bbox_thin, bbox_fat = self.get_bbox()
-                raw_image, pose = self.cap.get()
+                raw_image = self.cap.get()
                 image_left = raw_image[:, 0:raw_image.shape[1] / 2, :]
                 image_right = raw_image[:, raw_image.shape[1] / 2:, :]
                 image = image_left[bbox_fat[0, 0]: bbox_fat[1, 0], bbox_fat[0, 1]: bbox_fat[1, 1]]
@@ -167,7 +163,7 @@ class Predictor(threading.Thread):
                     feature_map = get_feature(self.model, image.transpose(2, 0, 1).astype(np.float32))
                 image_left = cv2.cvtColor(image_left, cv2.COLOR_RGB2GRAY)
                 image_right = cv2.cvtColor(image_right, cv2.COLOR_RGB2GRAY)
-                self.queue.put((image, feature_map, image_left, image_right, pose, bbox_thin, bbox_fat), timeout=1)
+                self.queue.put((image, feature_map, image_left, image_right, bbox_thin, bbox_fat), timeout=1)
             except Queue.Full:
                 pass
             except Queue.Empty:
@@ -223,7 +219,7 @@ class Predictor(threading.Thread):
         logger.info('{} will stop'.format(self.name))
         self.stop_event.set()
 
-    def save_skeleton(self, humans_left, image_left, image_right, pose):
+    def save_skeleton(self, humans_left, image_left, image_right):
         if len(humans_left) > 0:
             skeleton_num = [0] * len(humans_left)
             for i in range(len(humans_left)):
@@ -231,7 +227,7 @@ class Predictor(threading.Thread):
                 points = []
                 types = []
                 '''if skeleton_num[i] > 0:
-                    points, types = self.get_points(humans_left[i], image_left, image_right, pose)
+                    points, types = self.get_points(humans_left[i], image_left, image_right)
                 self.text_file.write(str(0) + ',' + str(0) + ',' + str(len(types)) + ',' + str(time.time()) + '\n')
                 for i in range(len(types)):
                     self.text_file.write(str(types[i]) + ',' + str(points[i][0]) + ','
@@ -250,7 +246,7 @@ class Predictor(threading.Thread):
                     return points[types == 1][2]'''
         return 0
 
-    def pub_skeleton(self, humans_left, conf, image_left, image_right, pose, bbox_thin, bbox_fat):
+    def pub_skeleton(self, humans_left, conf, image_left, image_right, bbox_thin, bbox_fat):
         global img_time_queue
         msg = Skeleton()
         msg.header = std_msgs.msg.Header()
@@ -702,14 +698,14 @@ def main():
             degree += 5
             degree = degree % 360
             try:
-                image, feature_map, image_left, image_right, pose, bbox_thin, bbox_fat = predictor.get()
+                image, feature_map, image_left, image_right, bbox_thin, bbox_fat = predictor.get()
                 humans, confidences = get_humans_by_feature(model, feature_map)
             except Queue.Empty:
                 continue
             except Exception:
                 break
-            predictor.pub_skeleton(humans, confidences, image_left, image_right, pose, bbox_thin, bbox_fat)
-            # predictor.save_skeleton(humans, image_left, image_right, pose)
+            predictor.pub_skeleton(humans, confidences, image_left, image_right, bbox_thin, bbox_fat)
+            # predictor.save_skeleton(humans, image_left, image_right)
             # head_depth = predictor.get_head_depth(humans, image_left, image_right)
             pilImg = Image.fromarray(image)
             pilImg = draw_humans(
@@ -751,6 +747,7 @@ if __name__ == '__main__':
     bbox_sub = rospy.Subscriber('/bbox_feadback', Bbox, bbox_callback)
     left_sub = rospy.Subscriber('/zed/left/image_rect_color/compressed', CompressedImage, left_image_callback)
     right_sub = rospy.Subscriber('/zed/right/image_rect_color/compressed', CompressedImage, right_image_callback)
+    # for rosbag record pose and skeleton
     pose_sub = rospy.Subscriber('/mavros/local_position/pose2', PoseStamped, pose_callback)
     pose_pub = rospy.Publisher('/mavros/local_position/pose', PoseStamped, queue_size=1000)
     main()

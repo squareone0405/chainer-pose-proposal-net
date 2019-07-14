@@ -29,7 +29,6 @@ def guide_transform(last_points, guide_points, guide_confidence, init_trans, ini
 
 
 def refine_skeleton(init_points, guide_points, init_confidence, guide_confidence, bone_length, initial_cost, final_cost):
-    print(bone_length)
     ceres_refine(ctypes.c_void_p(init_points.ctypes.data),
                  ctypes.c_void_p(guide_points.ctypes.data),
                  ctypes.c_void_p(init_confidence.ctypes.data),
