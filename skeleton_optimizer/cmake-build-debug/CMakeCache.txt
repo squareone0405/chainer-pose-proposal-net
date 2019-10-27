@@ -194,11 +194,17 @@ Ceres_DIR:PATH=/usr/local/lib/cmake/Ceres
 //Eigen include directory
 EIGEN_INCLUDE_DIR:STRING=/usr/local/include/eigen3
 
+//The directory containing a CMake configuration file for Eigen.
+Eigen_DIR:PATH=Eigen_DIR-NOTFOUND
+
 //Path to a program.
 ProcessorCount_cmd_getconf:FILEPATH=/usr/bin/getconf
 
 //Path to a program.
 ProcessorCount_cmd_sysctl:FILEPATH=/sbin/sysctl
+
+//The directory containing a CMake configuration file for Sophus.
+Sophus_DIR:PATH=/home/squareone/Documents/git/Sophus/build
 
 //The directory containing a CMake configuration file for gflags.
 gflags_DIR:PATH=/usr/lib/x86_64-linux-gnu/cmake/gflags
@@ -207,7 +213,7 @@ gflags_DIR:PATH=/usr/lib/x86_64-linux-gnu/cmake/gflags
 glog_DIR:PATH=/home/squareone/Desktop/megvii/dynamicfusion/glog/build
 
 //Dependencies for the target
-skeleton_LIB_DEPENDS:STATIC=general;ceres;
+skeleton_LIB_DEPENDS:STATIC=general;ceres;general;/home/squareone/Documents/git/Sophus/build/libSophus.so;
 
 //Value Computed by CMake
 skeleton_optimizer_BINARY_DIR:STATIC=/home/squareone/ppn_ws/src/ppn/skeleton_optimizer/cmake-build-debug

@@ -3,6 +3,7 @@
 import rospy
 import std_msgs
 from sensor_msgs.msg import CompressedImage
+from sensor_msgs.msg import Image
 from geometry_msgs.msg import Point
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Pose
@@ -627,6 +628,7 @@ timestamp_list = np.array([])
 def left_image_callback(image_msg):
     nparr = np.fromstring(image_msg.data, np.uint8)
     left_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    print(left_image.shape)
     t = image_msg.header.stamp.to_sec()
     left_queue.put((t, left_image))
     img_time_queue.put(rospy.Time.now())
@@ -747,6 +749,8 @@ if __name__ == '__main__':
     bbox_sub = rospy.Subscriber('/bbox_feadback', Bbox, bbox_callback)
     left_sub = rospy.Subscriber('/zed/left/image_rect_color/compressed', CompressedImage, left_image_callback)
     right_sub = rospy.Subscriber('/zed/right/image_rect_color/compressed', CompressedImage, right_image_callback)
+    # left_sub = rospy.Subscriber('/zed/left/image_rect_color', Image, left_image_callback)
+    # right_sub = rospy.Subscriber('/zed/right/image_rect_color', Image, right_image_callback)
     # for rosbag record pose and skeleton
     pose_sub = rospy.Subscriber('/mavros/local_position/pose2', PoseStamped, pose_callback)
     pose_pub = rospy.Publisher('/mavros/local_position/pose', PoseStamped, queue_size=1000)

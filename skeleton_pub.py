@@ -3,6 +3,7 @@
 import rospy
 import std_msgs
 from sensor_msgs.msg import CompressedImage
+import sensor_msgs.msg
 from geometry_msgs.msg import Point
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Pose
@@ -101,12 +102,14 @@ class Capture(threading.Thread):
             global right_queue
             global pose_list
             global timestamp_list
-            if left_queue.qsize > 0 and right_queue.qsize() > 0 and len(timestamp_list) > 0:
+            if left_queue.qsize > 0 and right_queue.qsize() > 0:
                 left_t, left_image = left_queue.get()
                 right_t, right_image = right_queue.get()
-                diff = np.fabs(timestamp_list - left_t)
-                min_idx = np.argmin(diff)
-                pose = pose_list[min_idx]
+                left_image_cut = left_image[:300, 148: (672-148), :]
+                left_image = cv2.resize(left_image_cut, (672, 376))
+                right_image_cut = right_image[:300, 148: (672 - 148), :]
+                right_image = cv2.resize(right_image_cut, (672, 376))
+                # pose = pose_list[min_idx]
                 # timestamp_list = timestamp_list[min_idx:]
                 # pose_list = pose_list[min_idx:]
                 side_by_side = np.zeros((376, 672 * 2, 3), dtype=np.uint8)
@@ -114,7 +117,7 @@ class Capture(threading.Thread):
                 side_by_side[:, 672:, :] = right_image
                 try:
                     image = cv2.cvtColor(side_by_side, cv2.COLOR_BGR2RGB)
-                    self.queue.put((image, pose), timeout=1)
+                    self.queue.put((image, None), timeout=1)
                 except Queue.Full:
                     pass
 
@@ -180,6 +183,7 @@ class Predictor(threading.Thread):
                                          + str(points[i][1]) + ',' + str(points[i][2]) + '\n')
 
     def get_head_depth(self, humans_left, image_left, image_right):
+        head_points = []
         if len(humans_left) > 0:
             skeleton_num = [0] * len(humans_left)
             for i in range(len(humans_left)):
@@ -189,10 +193,10 @@ class Predictor(threading.Thread):
                 points = []
                 types = []
                 if skeleton_num[i] > 0:
-                    points, types = self.get_points(humans_left[i], image_left, image_right)
+                    points, types = self.get_points(humans_left[i], image_left, image_right, None)
                 if 1 in types:
-                    return points[types == 1][2]
-        return 0
+                    head_points.append(points[types == 1])
+        return head_points
 
     def pub_skeleton(self, humans_left, image_left, image_right, pose):
         msg = Skeleton()
@@ -520,19 +524,21 @@ timestamp_list = np.array([])
 
 
 def left_image_callback(image_msg):
-    nparr = np.fromstring(image_msg.data, np.uint8)
-    left_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    left_image = bridge.imgmsg_to_cv2(image_msg, desired_encoding="passthrough")[:, :, :3]
+    # nparr = np.fromstring(image_msg.data, np.uint8)
+    # left_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     t = image_msg.header.stamp.to_sec()
     left_queue.put((t, left_image))
-    # print('left:' + str(image_msg.header.seq) + 'queue:' + str(left_queue.qsize()))
+    print('left:' + str(image_msg.header.seq) + 'queue:' + str(left_queue.qsize()))
 
 
 def right_image_callback(image_msg):
-    nparr = np.fromstring(image_msg.data, np.uint8)
-    right_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    right_image = bridge.imgmsg_to_cv2(image_msg, desired_encoding="passthrough")[:, :, :3]
+    # nparr = np.fromstring(image_msg.data, np.uint8)
+    # right_image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     t = image_msg.header.stamp.to_sec()
     right_queue.put((t, right_image))
-    # print('right:' + str(image_msg.header.seq) + 'queue:' + str(right_queue.qsize()))
+    print('right:' + str(image_msg.header.seq) + 'queue:' + str(right_queue.qsize()))
 
 
 def pose_callback(pose_msg):
@@ -608,20 +614,22 @@ def main():
 
     main_event = threading.Event()
 
+    frame_counter = 1
+
     try:
         while not main_event.is_set():
             degree += 5
             degree = degree % 360
             try:
                 image, feature_map, image_left, image_right, pose = predictor.get()
-                humans = get_humans_by_feature(model, feature_map)
+                humans, confidences = get_humans_by_feature(model, feature_map)
             except Queue.Empty:
                 continue
             except Exception:
                 break
-            predictor.pub_skeleton(humans, image_left, image_right, pose)
+            # predictor.pub_skeleton(humans, image_left, image_right, pose)
             # predictor.save_skeleton(humans, image_left, image_right, pose)
-            # head_depth = predictor.get_head_depth(humans, image_left, image_right)
+            head_points = predictor.get_head_depth(humans, image_left, image_right)
             pilImg = Image.fromarray(image)
             pilImg = draw_humans(
                 model.keypoint_names,
@@ -635,10 +643,14 @@ def main():
             msg += ' ' + config.get('model_param', 'model_name')
             cv2.putText(img_with_humans, 'FPS: %f' % (1.0 / (time.time() - fps_time)),
                         (10, 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-            '''cv2.putText(img_with_humans, 'depth: %lf' % (head_depth),
-                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)'''
+            print(head_points)
+            for head in head_points:
+                cv2.putText(img_with_humans, '%lf' % (head[2]),
+                            (int(head[0] / 672 * 224), int(head[1] / 376 * 224)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
             img_with_humans = cv2.resize(img_with_humans, (3 * model.insize[0], 3 * model.insize[1]))
             cv2.imshow('Pose Proposal Network' + msg, img_with_humans)
+            cv2.imwrite('../output/%05d.jpg' % frame_counter, img_with_humans)
+            frame_counter = frame_counter + 1
             fps_time = time.time()
             # press Esc to exit
             if cv2.waitKey(1) == 27:
@@ -659,7 +671,9 @@ def main():
 if __name__ == '__main__':
     rospy.init_node('skeleton_pub', anonymous=True)
     pub = rospy.Publisher('skeleton', Skeleton, queue_size=1000)
-    left_sub = rospy.Subscriber('/zed/left/image_rect_color/compressed', CompressedImage, left_image_callback)
-    right_sub = rospy.Subscriber('/zed/right/image_rect_color/compressed', CompressedImage, right_image_callback)
+    # left_sub = rospy.Subscriber('/zed/left/image_rect_color/compressed', CompressedImage, left_image_callback)
+    # right_sub = rospy.Subscriber('/zed/right/image_rect_color/compressed', CompressedImage, right_image_callback)
+    left_sub = rospy.Subscriber('/zed/left/image_rect_color', sensor_msgs.msg.Image, left_image_callback)
+    right_sub = rospy.Subscriber('/zed/right/image_rect_color', sensor_msgs.msg.Image, right_image_callback)
     pose_sub = rospy.Subscriber('/mavros/local_position/pose', PoseStamped, pose_callback)
     main()

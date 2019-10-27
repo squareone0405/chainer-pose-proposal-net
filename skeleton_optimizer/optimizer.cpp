@@ -1,19 +1,29 @@
 #include "optimizer.h"
-#include <iostream>
 
 using namespace std;
 
-void guide_transform(void* last_points_, void* guide_points_, void* guide_confidence_,
-                     void* init_trans_, void* initial_cost_, void* final_cost_){
-    double* last_points = (double*)last_points_;
-    double* guide_points = (double*)guide_points_;
-    double* guide_confidence = (double*)guide_confidence_;
-    double* init_trans = (double*)init_trans_;
+void ICP_transform(void* source_points_, void* target_points_, void* source_confidence_, void* target_confidence_,
+                   void* pair_num_, void* transform_, void* initial_cost_, void* final_cost_) {
+    double* source_points = (double*)source_points_;
+    double* target_points = (double*)target_points_;
+    double* source_confidence = (double*)source_confidence_;
+    double* target_confidence = (double*)target_confidence_;
     double* initial_cost = (double*) initial_cost_;
     double* final_cost = (double*) final_cost_;
+    int* pair_num = (int*) pair_num_;
     ceres::Problem problem;
-    problem.AddResidualBlock(new TransformResidual(last_points, guide_points, guide_confidence, init_trans),
-                             nullptr, init_trans);
+
+    /*Eigen::Matrix3d rotation = Eigen::MatrixXd::Identity(3, 3);
+    Sophus::SO3 SO3(rotation);
+    Eigen::Vector3d se3 = SO3.log();
+    cout<<rotation<<endl;
+    cout<<se3<<endl;
+    cout<<Sophus::SO3::hat(se3)<<endl;
+    cout<<SO3.matrix()<<endl;*/
+
+    double init_trans[6] = {0, 0, 0, 0, 0, 0};
+    problem.AddResidualBlock(new ICPResidual(source_points, target_points, source_confidence, target_confidence, *pair_num),
+                             nullptr, init_trans); // transform as init_trans
     ceres::Solver::Options options;
     options.linear_solver_type = ceres::DENSE_QR;
     options.minimizer_type = ceres::LINE_SEARCH;
@@ -22,7 +32,7 @@ void guide_transform(void* last_points_, void* guide_points_, void* guide_confid
     ceres::Solve(options, &problem, &summary);
     *initial_cost = summary.initial_cost;
     *final_cost = summary.final_cost;
-    //cout<<summary.FullReport()<<endl;
+    cout<<summary.FullReport()<<endl;
 }
 
 void refine_skeleton(void* init_points_, void* guide_points_, void* init_confidence_, void* guide_confidence_,
@@ -35,13 +45,11 @@ void refine_skeleton(void* init_points_, void* guide_points_, void* init_confide
     double* initial_cost = (double*) initial_cost_;
     double* final_cost = (double*) final_cost_;
     ceres::Problem problem;
+//    problem.AddResidualBlock(new SmoothCostFunction(init_points, init_confidence), new ceres::TrivialLoss(), init_points);
+//    problem.AddResidualBlock(new GuideCostFunction(guide_points, guide_confidence), new ceres::HuberLoss(0.2), init_points);
+    problem.AddResidualBlock(new BoneResidual(bone_length), new ceres::TrivialLoss(), init_points);
     problem.AddResidualBlock(new SpaceResidual(guide_points, init_points, init_confidence, guide_confidence),
                              nullptr, init_points);
-    /*for(int i = 0; i < 14; ++i) {
-        problem.AddResidualBlock(new SmoothCostFunction(init_points, init_confidence[i], i), nullptr, init_points);
-        problem.AddResidualBlock(new GuideCostFunction(guide_points, guide_confidence[i], i), new ceres::HuberLoss(10), init_points);
-    }*/
-    problem.AddResidualBlock(new BoneResidual(bone_length), nullptr, init_points);
     ceres::Solver::Options options;
     options.linear_solver_type = ceres::DENSE_QR;
     options.minimizer_type = ceres::LINE_SEARCH;//TRUST_REGION;//
@@ -52,6 +60,6 @@ void refine_skeleton(void* init_points_, void* guide_points_, void* init_confide
     ceres::Solve(options, &problem, &summary);
     *initial_cost = summary.initial_cost;
     *final_cost = summary.final_cost;
-    //cout<<summary.FullReport()<<endl;
+    // cout<<summary.FullReport()<<endl;
 }
 

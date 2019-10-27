@@ -107,3 +107,4 @@ result/
 # mypy
 .mypy_cache/
 skeleton_optimizer/cmake-build-debug/CMakeFiles/
+mpii_224_mv2/

@@ -5,7 +5,7 @@
 		<Option title="skeleton_optimizer"/>
 		<Option makefile_is_custom="1"/>
 		<Option compiler="gcc"/>
-		<Option virtualFolders="CMake Files\;CMake Files\..\;CMake Files\..\..\;CMake Files\..\..\..\;CMake Files\..\..\..\..\;CMake Files\..\..\..\..\..\;CMake Files\..\..\..\..\..\..\;CMake Files\..\..\..\..\..\..\usr\;CMake Files\..\..\..\..\..\..\usr\local\;CMake Files\..\..\..\..\..\..\usr\local\lib\;CMake Files\..\..\..\..\..\..\usr\local\lib\cmake\;CMake Files\..\..\..\..\..\..\usr\local\lib\cmake\Ceres\;CMake Files\..\..\..\..\..\..\usr\local\share\;CMake Files\..\..\..\..\..\..\usr\local\share\eigen3\;CMake Files\..\..\..\..\..\..\usr\local\share\eigen3\cmake\;CMake Files\..\..\..\..\..\..\usr\lib\;CMake Files\..\..\..\..\..\..\usr\lib\x86_64-linux-gnu\;CMake Files\..\..\..\..\..\..\usr\lib\x86_64-linux-gnu\cmake\;CMake Files\..\..\..\..\..\..\usr\lib\x86_64-linux-gnu\cmake\gflags\;CMake Files\..\..\..\..\Desktop\;CMake Files\..\..\..\..\Desktop\megvii\;CMake Files\..\..\..\..\Desktop\megvii\dynamicfusion\;CMake Files\..\..\..\..\Desktop\megvii\dynamicfusion\glog\;CMake Files\..\..\..\..\Desktop\megvii\dynamicfusion\glog\build\;"/>
+		<Option virtualFolders="CMake Files\;CMake Files\..\;CMake Files\..\..\;CMake Files\..\..\..\;CMake Files\..\..\..\..\;CMake Files\..\..\..\..\Documents\;CMake Files\..\..\..\..\Documents\git\;CMake Files\..\..\..\..\Documents\git\Sophus\;CMake Files\..\..\..\..\Documents\git\Sophus\build\;CMake Files\..\..\..\..\..\;CMake Files\..\..\..\..\..\..\;CMake Files\..\..\..\..\..\..\usr\;CMake Files\..\..\..\..\..\..\usr\local\;CMake Files\..\..\..\..\..\..\usr\local\lib\;CMake Files\..\..\..\..\..\..\usr\local\lib\cmake\;CMake Files\..\..\..\..\..\..\usr\local\lib\cmake\Ceres\;CMake Files\..\..\..\..\..\..\usr\local\share\;CMake Files\..\..\..\..\..\..\usr\local\share\eigen3\;CMake Files\..\..\..\..\..\..\usr\local\share\eigen3\cmake\;CMake Files\..\..\..\..\..\..\usr\lib\;CMake Files\..\..\..\..\..\..\usr\lib\x86_64-linux-gnu\;CMake Files\..\..\..\..\..\..\usr\lib\x86_64-linux-gnu\cmake\;CMake Files\..\..\..\..\..\..\usr\lib\x86_64-linux-gnu\cmake\gflags\;CMake Files\..\..\..\..\Desktop\;CMake Files\..\..\..\..\Desktop\megvii\;CMake Files\..\..\..\..\Desktop\megvii\dynamicfusion\;CMake Files\..\..\..\..\Desktop\megvii\dynamicfusion\glog\;CMake Files\..\..\..\..\Desktop\megvii\dynamicfusion\glog\build\;"/>
 		<Build>
 			<Target title="all">
 				<Option working_dir="/home/squareone/ppn_ws/src/ppn/skeleton_optimizer/cmake-build-debug"/>
@@ -50,6 +50,7 @@
 					<Add option="-DGFLAGS_IS_A_DLL=0"/>
 					<Add directory="/usr/local/include"/>
 					<Add directory="/usr/local/include/eigen3"/>
+					<Add directory="/home/squareone/Documents/git/Sophus"/>
 					<Add directory="/home/squareone/Desktop/megvii/dynamicfusion/glog/build"/>
 					<Add directory="/home/squareone/Desktop/megvii/dynamicfusion/glog/src"/>
 					<Add directory="/usr/include/c++/7"/>
@@ -80,6 +81,7 @@
 					<Add option="-DGFLAGS_IS_A_DLL=0"/>
 					<Add directory="/usr/local/include"/>
 					<Add directory="/usr/local/include/eigen3"/>
+					<Add directory="/home/squareone/Documents/git/Sophus"/>
 					<Add directory="/home/squareone/Desktop/megvii/dynamicfusion/glog/build"/>
 					<Add directory="/home/squareone/Desktop/megvii/dynamicfusion/glog/src"/>
 					<Add directory="/usr/include/c++/7"/>
@@ -110,6 +112,7 @@
 					<Add option="-DGFLAGS_IS_A_DLL=0"/>
 					<Add directory="/usr/local/include"/>
 					<Add directory="/usr/local/include/eigen3"/>
+					<Add directory="/home/squareone/Documents/git/Sophus"/>
 					<Add directory="/home/squareone/Desktop/megvii/dynamicfusion/glog/build"/>
 					<Add directory="/home/squareone/Desktop/megvii/dynamicfusion/glog/src"/>
 					<Add directory="/usr/include/c++/7"/>
@@ -140,6 +143,7 @@
 					<Add option="-DGFLAGS_IS_A_DLL=0"/>
 					<Add directory="/usr/local/include"/>
 					<Add directory="/usr/local/include/eigen3"/>
+					<Add directory="/home/squareone/Documents/git/Sophus"/>
 					<Add directory="/home/squareone/Desktop/megvii/dynamicfusion/glog/build"/>
 					<Add directory="/home/squareone/Desktop/megvii/dynamicfusion/glog/src"/>
 					<Add directory="/usr/include/c++/7"/>
@@ -171,6 +175,9 @@
 		</Unit>
 		<Unit filename="/home/squareone/ppn_ws/src/ppn/skeleton_optimizer/CMakeLists.txt">
 			<Option virtualFolder="CMake Files\"/>
+		</Unit>
+		<Unit filename="/home/squareone/ppn_ws/src/ppn/skeleton_optimizer/../../../../Documents/git/Sophus/build/SophusConfig.cmake">
+			<Option virtualFolder="CMake Files\..\..\..\..\Documents\git\Sophus\build\"/>
 		</Unit>
 		<Unit filename="/home/squareone/ppn_ws/src/ppn/skeleton_optimizer/../../../../../../usr/local/lib/cmake/Ceres/CeresConfig.cmake">
 			<Option virtualFolder="CMake Files\..\..\..\..\..\..\usr\local\lib\cmake\Ceres\"/>

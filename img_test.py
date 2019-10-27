@@ -353,14 +353,13 @@ def main():
 
     model = create_model(config)
 
-    image_left_ori = cv2.imread('lwb_7_l.png')
-    image_right_ori = cv2.imread('lwb_7_r.png')
+    image_left_ori = cv2.imread('../images/img3_l.png')
+    image_right_ori = cv2.imread('../images/img3_r.png')
     shape_ori = image_left_ori.shape
     image_left = cv2.cvtColor(image_left_ori, cv2.COLOR_BGR2RGB)
     image_left = cv2.resize(image_left, model.insize)
     with chainer.using_config('autotune', True):
-        humans = estimate(model,
-                          image_left.transpose(2, 0, 1).astype(np.float32))
+        humans, _ = estimate(model, image_left.transpose(2, 0, 1).astype(np.float32))
         print(humans)
     pilImg = Image.fromarray(image_left)
     pilImg = draw_humans(

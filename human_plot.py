@@ -31,13 +31,12 @@ def main():
     else:
         mask = None
 
-    image = cv2.imread('lwb_l.png')
+    image = cv2.imread('../images/img1_l.png')
     shape_ori = image.shape
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     image = cv2.resize(image, model.insize)
     with chainer.using_config('autotune', True):
-        humans = estimate(model,
-                          image.transpose(2, 0, 1).astype(np.float32))
+        humans, _ = estimate(model, image.transpose(2, 0, 1).astype(np.float32))
     pilImg = Image.fromarray(image)
     pilImg = draw_humans(
         model.keypoint_names,
@@ -69,9 +68,9 @@ def main():
                     f.write(str((ymin + ymax) * ky / 2))
                     f.write('\r\n')
 
-    '''img_with_humans = cv2.resize(img_with_humans, (3 * model.insize[0], 3 * model.insize[1]))
+    img_with_humans = cv2.resize(img_with_humans, (3 * model.insize[0], 3 * model.insize[1]))
     plt.imshow(img_with_humans)
-    plt.show()'''
+    plt.show()
 
 if __name__ == '__main__':
     main()
