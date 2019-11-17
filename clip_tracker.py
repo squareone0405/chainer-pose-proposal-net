@@ -17,6 +17,23 @@ from PIL import Image
 from predict import get_feature, get_humans_by_feature, draw_humans, create_model
 from utils import parse_size
 
+import ctypes
+from ctypes import cdll
+
+lib = cdll.LoadLibrary('./build/ssd.so')
+ssd_cuda = lib.ssd
+
+def compute_ssd(window, target, out, window_width, window_height,
+                target_width, target_height, out_width, out_height, num):
+    ssd_cuda(ctypes.c_void_p(window.ctypes.data),
+             ctypes.c_void_p(target.ctypes.data),
+             ctypes.c_void_p(out.ctypes.data),
+             ctypes.c_void_p(window_width.ctypes.data),
+             ctypes.c_void_p(window_height.ctypes.data),
+             ctypes.c_void_p(target_width.ctypes.data),
+             ctypes.c_void_p(target_height.ctypes.data),
+             ctypes.c_int32(out_width), ctypes.c_int32(out_height), ctypes.c_int32(num))
+
 QUEUE_SIZE = 5
 
 """
@@ -87,7 +104,28 @@ class Predictor(threading.Thread):
             except Queue.Empty:
                 pass
 
-    def update_target(self, head_box):
+    def update_target(self, head_boxes):
+        min_dist = np.inf
+        nearest_box = None
+        for head_box in head_boxes:
+            ymin, xmin, ymax, xmax = head_box
+            wroi = self.roi_box[2] - self.roi_box[0]
+            hroi = self.roi_box[3] - self.roi_box[1]
+            ymin = ymin * hroi / 224
+            ymax = ymax * hroi / 224
+            xmin = xmin * wroi / 224
+            xmax = xmax * wroi / 224
+            xcenter = (xmin + xmax) / 2 + self.roi_box[0]
+            ycenter = (ymin + ymax) / 2 + self.roi_box[1]
+            if self.get_dist([xcenter, ycenter], self.target_point) < min_dist:
+                min_dist = self.get_dist([xcenter, ycenter], self.target_point)
+                nearest_box = head_box
+
+        if min_dist > self.dist_thresh:
+            return
+
+        head_box = nearest_box
+        print(head_box)
         ymin, xmin, ymax, xmax = head_box
         wroi = self.roi_box[2] - self.roi_box[0]
         hroi = self.roi_box[3] - self.roi_box[1]
@@ -95,21 +133,48 @@ class Predictor(threading.Thread):
         ymax = ymax * hroi / 224
         xmin = xmin * wroi / 224
         xmax = xmax * wroi / 224
-        xcenter = (xmin + xmax) / 2 + self.roi_box[0]
+        xcenter = (xmin + xmax) / 2 + self.roi_box[0] # size in original image
         ycenter = (ymin + ymax) / 2 + self.roi_box[1]
-
-        if self.get_dist([xcenter, ycenter], self.target_point) > self.dist_thresh:
-            return
 
         whead = xmax - xmin
         hhead = ymax - ymin
+
         print([ymin, xmin, ymax, xmax, wroi, hroi, whead, hhead])
-        top = int(max((ymin - 1.5 * hhead) + self.roi_box[1], 0))
-        bottom = int(min((ymax + 4.5 * hhead) + self.roi_box[1], 376))
-        left = int(max((xmin - 2.5 * whead) + self.roi_box[0], 0))
-        right = int(min((xmax + 2.5 * whead) + self.roi_box[0], 672))
+
+        roi_size = (whead + hhead) * 1.5
+        xcenter_body = xcenter
+        ycenter_body = ycenter + hhead / 2
+        top = ycenter_body - roi_size
+        bottom = ycenter_body + roi_size
+        left = xcenter_body - roi_size
+        right = xcenter_body + roi_size
+
         print([left, top, right, bottom])
-        print('---------------')
+
+        if top < 0:
+            bottom = bottom - top
+            top = 0
+        if bottom > 376:
+            top = top - (bottom - 376)
+            bottom = 376
+        if left < 0:
+            right = right - left
+            left = 0
+        if right > 672:
+            left = left - (right - 672)
+            right = 672
+        top = int(max(top, 0))
+        bottom = int(min(bottom, 376))
+        left = int(max(left, 0))
+        right = int(min(right, 672))
+
+        print([left, top, right, bottom])
+
+        # top = int(max((ymin - 1.5 * hhead) + self.roi_box[1], 0))
+        # bottom = int(min((ymax + 4.5 * hhead) + self.roi_box[1], 376))
+        # left = int(max((xmin - 2.5 * whead) + self.roi_box[0], 0))
+        # right = int(min((xmax + 2.5 * whead) + self.roi_box[0], 672))
+
         curr_box = [left, top, right, bottom]
         for i in range(4):
             self.roi_box[i] = int((6 * self.roi_box[i] + curr_box[i]) / 7)
@@ -117,6 +182,7 @@ class Predictor(threading.Thread):
         self.target_point[1] = (6 * self.target_point[1] + ycenter) / 7
         print(self.roi_box)
         print(self.target_point)
+        print('------------------------')
 
     def init_target(self, head_box):
         ymin, xmin, ymax, xmax = head_box
@@ -191,7 +257,10 @@ def main():
                 if len(humans) and not predictor.is_target_set:
                     predictor.init_target(humans[0][0])
                 elif len(humans):
-                    predictor.update_target(humans[0][0])
+                    head_boxes = []
+                    for human in humans:
+                        head_boxes.append(human[0])
+                    predictor.update_target(head_boxes)
             except Queue.Empty:
                 continue
             except Exception:
